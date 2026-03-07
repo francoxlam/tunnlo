@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { AdapterRegistry } from './registry.js';
-import { StdinAdapter } from '@tunnlo/adapters';
+import type { Adapter, AdapterConfig, AdapterHealth, RawEvent, TunnloEvent } from '@tunnlo/core';
+
+class MockAdapter implements Adapter {
+  async connect(_config: AdapterConfig): Promise<void> {}
+  async *read(): AsyncIterable<RawEvent> {}
+  transform(raw: RawEvent): TunnloEvent {
+    return { event_id: '1', source_id: 'mock', timestamp: raw.received_at, event_type: 'DATA', payload: { data: String(raw.data) } };
+  }
+  async disconnect(): Promise<void> {}
+  health(): AdapterHealth { return { status: 'connected' }; }
+}
 
 describe('AdapterRegistry', () => {
   it('registers and creates adapters', () => {
@@ -10,11 +20,11 @@ describe('AdapterRegistry', () => {
       description: 'A test adapter',
       version: '1.0.0',
       tags: ['test'],
-      factory: () => new StdinAdapter(),
+      factory: () => new MockAdapter(),
     });
 
     const adapter = registry.create('test-adapter', { adapter: 'test', id: 'test-1', config: {} });
-    expect(adapter).toBeInstanceOf(StdinAdapter);
+    expect(adapter).toBeInstanceOf(MockAdapter);
   });
 
   it('throws on duplicate registration', () => {
@@ -23,7 +33,7 @@ describe('AdapterRegistry', () => {
       name: 'dup',
       description: 'Dup',
       version: '1.0.0',
-      factory: () => new StdinAdapter(),
+      factory: () => new MockAdapter(),
     };
 
     registry.register(entry);
@@ -42,14 +52,14 @@ describe('AdapterRegistry', () => {
       description: 'First',
       version: '1.0.0',
       tags: ['network'],
-      factory: () => new StdinAdapter(),
+      factory: () => new MockAdapter(),
     });
     registry.register({
       name: 'a2',
       description: 'Second',
       version: '2.0.0',
       tags: ['log'],
-      factory: () => new StdinAdapter(),
+      factory: () => new MockAdapter(),
     });
 
     expect(registry.list()).toHaveLength(2);
@@ -62,14 +72,14 @@ describe('AdapterRegistry', () => {
       description: 'Captures network packets',
       version: '1.0.0',
       tags: ['network', 'pcap'],
-      factory: () => new StdinAdapter(),
+      factory: () => new MockAdapter(),
     });
     registry.register({
       name: 'log-reader',
       description: 'Reads log files',
       version: '1.0.0',
       tags: ['logs', 'file'],
-      factory: () => new StdinAdapter(),
+      factory: () => new MockAdapter(),
     });
 
     expect(registry.search('network')).toHaveLength(1);
@@ -83,7 +93,7 @@ describe('AdapterRegistry', () => {
       name: 'temp',
       description: 'Temp',
       version: '1.0.0',
-      factory: () => new StdinAdapter(),
+      factory: () => new MockAdapter(),
     });
 
     expect(registry.unregister('temp')).toBe(true);
@@ -97,7 +107,7 @@ describe('AdapterRegistry', () => {
       description: 'Test adapter',
       version: '1.0.0',
       author: 'tunnlo',
-      factory: () => new StdinAdapter(),
+      factory: () => new MockAdapter(),
     });
 
     const json = registry.toJSON();
