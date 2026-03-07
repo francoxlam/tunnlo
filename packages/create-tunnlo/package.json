@@ -1,0 +1,14 @@
+{
+  "name": "create-tunnlo",
+  "version": "0.1.0",
+  "description": "Scaffolding tool for new Tunnlo projects",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-tunnlo": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "files": ["dist", "templates"]
+}

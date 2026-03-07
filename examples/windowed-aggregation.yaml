@@ -1,0 +1,59 @@
+# Tunnlo Example: Windowed Aggregation
+# Batches stdin events into time windows before sending to the LLM.
+# Instead of analyzing events one-by-one, the LLM receives a batch
+# and can spot patterns across multiple events.
+# Demonstrates: windowed-aggregation filter, dedup, priority-router.
+#
+# Usage:
+#   npx tunnlo start examples/windowed-aggregation.yaml
+#
+# Test it (paste these lines one at a time):
+#   {"src": "10.0.0.1", "dst": "10.0.0.5", "port": 22, "action": "connect"}
+#   {"src": "10.0.0.1", "dst": "10.0.0.5", "port": 23, "action": "connect"}
+#   {"src": "10.0.0.1", "dst": "10.0.0.5", "port": 80, "action": "connect"}
+#   {"src": "10.0.0.1", "dst": "10.0.0.5", "port": 443, "action": "connect"}
+#
+# After 10 seconds the window flushes and the LLM sees all 4 events together,
+# making it easier to detect the port scan pattern.
+#
+# Prerequisites:
+#   - Ollama running locally
+
+sources:
+  - id: stdin-input
+    adapter: native/stdin
+    config: {}
+
+filters:
+  - type: dedup
+    window_seconds: 10
+    key_fields:
+      - payload
+
+  - type: priority-router
+    high_priority_threshold: 2
+    low_priority_threshold: 5
+    drop_low_priority: false
+
+  - type: windowed-aggregation
+    window_seconds: 10
+    max_batch_size: 20
+    summary_prompt: >
+      You received a batch of events. Analyze them together.
+      Look for patterns, anomalies, or correlations across the batch.
+      Provide a brief security assessment.
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: >
+    You are a security analyst monitoring network and system events.
+    When you receive batched events, look for patterns across them
+    such as port scans, lateral movement, or coordinated activity.
+    Be concise. Highlight anything suspicious.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 3000
+
+behavior:
+  on_llm_unreachable: buffer_limited

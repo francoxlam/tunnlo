@@ -1,0 +1,56 @@
+# Tunnlo Example: Adaptive Sampling
+# Dynamically adjusts the sampling rate based on event velocity.
+# Under high load, fewer events reach the LLM. Under low load, more do.
+# High-priority events (priority <= 2) always pass through.
+# Demonstrates: adaptive-sampling filter, fast bus, dashboard.
+#
+# Usage:
+#   npx tunnlo start examples/adaptive-sampling.yaml
+#
+# Test it:
+#   # Paste lines quickly to simulate high velocity — you'll see events get sampled out.
+#   # Paste lines slowly to see the sample rate recover.
+#   # Open http://localhost:4400 to watch metrics in real time.
+#
+# Prerequisites:
+#   - Ollama running locally
+
+bus:
+  type: fast
+  batch_size: 10
+  flush_interval_ms: 100
+
+sources:
+  - id: stdin-input
+    adapter: native/stdin
+    config: {}
+
+filters:
+  - type: adaptive-sampling
+    base_rate: 0.8
+    min_rate: 0.1
+    max_rate: 1.0
+    velocity_window_seconds: 30
+    high_velocity_threshold: 10
+    low_velocity_threshold: 2
+
+  - type: rate-limiter
+    max_events_per_minute: 30
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: |
+    You are a monitoring agent. Analyze each event briefly.
+    Note: some events may be sampled out under high load.
+    Focus on the events you do receive.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 1500
+
+dashboard:
+  enabled: true
+  port: 4400
+
+behavior:
+  on_llm_unreachable: drop_and_alert

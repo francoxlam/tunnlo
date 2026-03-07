@@ -1,0 +1,37 @@
+# Tunnlo Example: Stdin Demo
+# The simplest possible pipeline — pipes stdin lines to a local LLM.
+# Great for quick testing and development.
+#
+# Usage:
+#   echo "server CPU at 95%" | npx tunnlo start examples/stdin-demo.yaml
+#   tail -f /var/log/syslog | npx tunnlo start examples/stdin-demo.yaml
+#
+# Prerequisites:
+#   - Ollama running locally (ollama serve)
+#   - Model pulled (ollama pull llama3.1:8b)
+
+sources:
+  - id: stdin-input
+    adapter: native/stdin
+    config: {}
+
+filters:
+  - type: rate-limiter
+    max_events_per_minute: 30
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: |
+    You are a data analysis agent. For each incoming event:
+    1. Briefly describe what the data represents
+    2. Flag any anomalies or concerns
+    3. Suggest follow-up actions if needed
+
+    Be concise — 2-3 sentences max.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 2000
+
+behavior:
+  on_llm_unreachable: drop_and_alert

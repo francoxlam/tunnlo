@@ -1,0 +1,64 @@
+# Tunnlo Example: Dashboard Demo
+# Shows the real-time web dashboard with metrics, event feed, and filter stats.
+# Demonstrates: dashboard, fast bus, multiple filters, all in one view.
+#
+# Usage:
+#   npx tunnlo start examples/dashboard-demo.yaml
+#   # Then open http://localhost:4400 in your browser
+#
+# Test it:
+#   # Paste various lines into stdin and watch the dashboard update:
+#   ERROR: connection refused to database
+#   WARN: response time 2500ms exceeds threshold
+#   INFO: user login from 192.168.1.50
+#   CRITICAL: out of memory, killing process
+#   DEBUG: cache hit ratio 95%
+#
+# Prerequisites:
+#   - Ollama running locally
+
+bus:
+  type: fast
+  batch_size: 5
+  flush_interval_ms: 50
+
+sources:
+  - id: stdin-input
+    adapter: native/stdin
+    config: {}
+
+filters:
+  - type: content-filter
+    rules:
+      - field: payload.data
+        regex: "(ERROR|WARN|CRITICAL|ALERT)"
+    mode: any
+
+  - type: dedup
+    window_seconds: 15
+    key_fields:
+      - payload.data
+
+  - type: rate-limiter
+    max_events_per_minute: 20
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: |
+    You are an operations monitoring agent. For each log event:
+    1. Classify the severity (info/warning/error/critical)
+    2. Identify the affected system component
+    3. Suggest immediate action if needed
+
+    Keep responses to 2-3 sentences.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 1500
+
+dashboard:
+  enabled: true
+  port: 4400
+
+behavior:
+  on_llm_unreachable: buffer_limited

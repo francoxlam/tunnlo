@@ -1,0 +1,27 @@
+{
+  "name": "@tunnlo/core",
+  "version": "0.1.0",
+  "description": "Core types, interfaces, and runtime for Tunnlo pipelines",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "uuid": "^11.0.0",
+    "yaml": "^2.7.0",
+    "ajv": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0"
+  },
+  "files": ["dist"]
+}

@@ -1,0 +1,97 @@
+# Tunnlo Example: Full Pipeline
+# Showcases every feature in a single config: all filter types,
+# fast bus, dashboard, windowed aggregation, and action dispatch.
+# This is the kitchen-sink example for testing the full framework.
+#
+# Usage:
+#   npx tunnlo start examples/full-pipeline.yaml
+#   # Open http://localhost:4400 to see the dashboard
+#
+# Test it (paste lines into stdin):
+#   {"type": "alert", "src": "10.0.0.1", "severity": "high", "msg": "brute force detected"}
+#   {"type": "metric", "cpu": 95, "host": "web-01"}
+#   {"type": "metric", "cpu": 95, "host": "web-01"}
+#   {"type": "log", "level": "ERROR", "msg": "connection timeout"}
+#   normal traffic nothing to see here
+#   {"type": "alert", "src": "10.0.0.2", "severity": "low", "msg": "port scan attempt"}
+#
+# What to expect:
+#   - Duplicate "cpu 95" is deduped
+#   - Adaptive sampling may drop events under high velocity
+#   - Priority router lets high-priority through, may drop low
+#   - Windowed aggregation batches events every 15s
+#   - Dashboard shows all metrics live
+#
+# Prerequisites:
+#   - Ollama running locally (ollama serve && ollama pull llama3.1:8b)
+
+bus:
+  type: fast
+  batch_size: 10
+  flush_interval_ms: 100
+
+sources:
+  - id: stdin-input
+    adapter: native/stdin
+    config: {}
+
+filters:
+  # 1. Remove exact duplicates within 20s
+  - type: dedup
+    window_seconds: 20
+    key_fields:
+      - payload.data
+
+  # 2. Dynamically sample based on event velocity
+  - type: adaptive-sampling
+    base_rate: 0.9
+    min_rate: 0.2
+    max_rate: 1.0
+    velocity_window_seconds: 30
+    high_velocity_threshold: 15
+    low_velocity_threshold: 3
+
+  # 3. Route by priority — always pass high-priority, optionally drop low
+  - type: priority-router
+    high_priority_threshold: 2
+    low_priority_threshold: 5
+    drop_low_priority: false
+
+  # 4. Hard rate limit as safety net
+  - type: rate-limiter
+    max_events_per_minute: 30
+
+  # 5. Batch events into 15-second windows for pattern detection
+  - type: windowed-aggregation
+    window_seconds: 15
+    max_batch_size: 10
+    summary_prompt: >
+      Analyze this batch of events together. Look for:
+      - Correlated failures across systems
+      - Attack patterns (scans, brute force, lateral movement)
+      - Resource exhaustion trends
+      Provide a brief security and ops assessment.
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: |
+    You are a combined security and operations monitoring agent.
+
+    You receive batched events from multiple sources. For each batch:
+    1. Identify the most critical items requiring immediate attention
+    2. Look for patterns across events (correlated failures, attack chains)
+    3. Provide a priority-ranked assessment
+    4. Suggest specific remediation actions
+
+    Be concise but thorough. Focus on actionable insights.
+  token_budget:
+    max_per_hour: 80000
+    max_per_event: 4000
+
+dashboard:
+  enabled: true
+  port: 4400
+
+behavior:
+  on_llm_unreachable: buffer_limited

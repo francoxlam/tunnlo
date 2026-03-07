@@ -1,0 +1,81 @@
+# Tunnlo Example: Multi-Source Log Monitor
+# Tails multiple log files simultaneously and correlates events.
+# Demonstrates: multiple log-tailer adapters, content-filter, windowed-aggregation.
+#
+# Usage:
+#   npx tunnlo start examples/multi-source-logs.yaml
+#
+# Setup (create the log files first):
+#   touch /tmp/nginx-error.log /tmp/app-error.log
+#
+# Test it (in separate terminals):
+#   echo "2024-01-15 ERROR upstream timed out (110: Connection timed out)" >> /tmp/nginx-error.log
+#   echo "2024-01-15 ERROR: redis ConnectionRefusedError: connect ECONNREFUSED" >> /tmp/app-error.log
+#   echo "2024-01-15 ERROR connect() failed (111: Connection refused)" >> /tmp/nginx-error.log
+#
+# The LLM sees both nginx + app errors batched together and can correlate
+# "nginx upstream timeout" with "app redis connection refused" as related.
+#
+# Prerequisites:
+#   - Ollama running locally
+
+sources:
+  - id: nginx-logs
+    adapter: native/log-tailer
+    config:
+      file_path: /tmp/nginx-error.log
+      poll_interval_ms: 500
+
+  - id: app-logs
+    adapter: native/log-tailer
+    config:
+      file_path: /tmp/app-error.log
+      poll_interval_ms: 500
+
+filters:
+  - type: content-filter
+    rules:
+      - field: payload.data
+        regex: "(ERROR|error|CRITICAL|FATAL|panic|exception)"
+    mode: any
+
+  - type: dedup
+    window_seconds: 30
+    key_fields:
+      - payload.data
+
+  - type: windowed-aggregation
+    window_seconds: 10
+    max_batch_size: 15
+    summary_prompt: >
+      You received errors from multiple services (nginx and app).
+      Correlate these errors — are they related? Is there a common root cause?
+      Identify the blast radius and suggest remediation.
+
+  - type: rate-limiter
+    max_events_per_minute: 10
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: |
+    You are an incident response agent monitoring multiple services.
+
+    Events come from different sources (check source_id to identify which service).
+    Your job is to:
+    1. Correlate errors across services
+    2. Identify the likely root cause
+    3. Assess the blast radius (which services are affected)
+    4. Recommend immediate remediation steps
+
+    Be specific and actionable. Reference the actual error messages.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 3000
+
+dashboard:
+  enabled: true
+  port: 4400
+
+behavior:
+  on_llm_unreachable: buffer_limited

@@ -1,0 +1,59 @@
+# Tunnlo Example: Log Monitor
+# Tails a log file, filters for errors/warnings, and sends them to an LLM.
+# Demonstrates: log-tailer adapter, content-filter, dedup, rate-limiter.
+#
+# Usage:
+#   npx tunnlo start examples/log-monitor.yaml
+#
+# Test it:
+#   # In another terminal, append lines to the log file:
+#   echo "2024-01-15 ERROR: database connection timeout after 30s" >> /tmp/app.log
+#   echo "2024-01-15 WARN: memory usage at 89%" >> /tmp/app.log
+#   echo "2024-01-15 INFO: request completed in 52ms" >> /tmp/app.log  # (filtered out)
+#   echo "2024-01-15 CRITICAL: disk space below 5%" >> /tmp/app.log
+#
+# Prerequisites:
+#   - Ollama running locally (ollama serve)
+#   - touch /tmp/app.log (create the file first)
+
+sources:
+  - id: app-logs
+    adapter: native/log-tailer
+    config:
+      file_path: /tmp/app.log
+      poll_interval_ms: 500
+
+filters:
+  # Only pass through error/warning/critical lines
+  - type: content-filter
+    rules:
+      - field: payload.data
+        regex: "(ERROR|WARN|CRITICAL)"
+
+  # Don't flood the LLM with repeated errors
+  - type: dedup
+    window_seconds: 30
+    key_fields:
+      - payload.data
+
+  - type: rate-limiter
+    max_events_per_minute: 15
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: |
+    You are a log analysis agent monitoring application logs.
+
+    For each log entry, assess:
+    1. Severity and category of the issue
+    2. Likely root cause
+    3. Recommended remediation steps
+
+    Be concise and actionable.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 2000
+
+behavior:
+  on_llm_unreachable: buffer_limited

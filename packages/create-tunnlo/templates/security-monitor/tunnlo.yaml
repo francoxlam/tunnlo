@@ -1,0 +1,53 @@
+# Tunnlo Security Monitor Template
+# Monitors network traffic via tshark and sends alerts to LLM
+
+sources:
+  - id: wireshark-capture
+    adapter: native/tshark
+    config:
+      interface: eth0
+      capture_filter: "tcp port 80 or tcp port 443"
+      output_format: json
+
+filters:
+  - type: content-filter
+    rules:
+      - field: payload.flags
+        match: "SYN"
+      - field: payload.dst_port
+        in: [22, 3389, 445]
+    mode: any
+
+  - type: dedup
+    window_seconds: 30
+    key_fields:
+      - payload.src_ip
+      - payload.dst_port
+
+  - type: rate-limiter
+    max_events_per_minute: 20
+
+agent:
+  runtime: direct-llm
+  model: anthropic/claude-sonnet-4-5
+  system_prompt: |
+    You are a security monitoring agent analyzing network traffic events.
+
+    For each event, assess:
+    1. Is this normal traffic or potentially suspicious?
+    2. What kind of activity does this represent?
+    3. Should an alert be raised?
+
+    If you detect suspicious activity, trigger a webhook alert:
+    ```json:actions
+    [{"type": "webhook", "config": {}, "payload": {"severity": "high", "message": "description"}}]
+    ```
+  token_budget:
+    max_per_hour: 100000
+    max_per_event: 4000
+  actions:
+    - type: webhook
+      url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+behavior:
+  on_llm_unreachable: drop_and_alert
