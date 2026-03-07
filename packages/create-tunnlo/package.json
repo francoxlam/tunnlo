@@ -1,6 +1,6 @@
 {
   "name": "create-tunnlo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scaffolding tool for new Tunnlo projects",
   "license": "MIT",
   "type": "module",
