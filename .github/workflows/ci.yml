@@ -30,6 +30,3 @@ jobs:
 
       - name: Test
         run: npx vitest run
-
-      - name: Type check
-        run: npm run lint

@@ -14,5 +14,18 @@
     "declarationMap": true,
     "sourceMap": true,
     "composite": true
-  }
+  },
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/adapters" },
+    { "path": "packages/filters" },
+    { "path": "packages/bridge-llm" },
+    { "path": "packages/actions" },
+    { "path": "packages/adapter-sdk" },
+    { "path": "packages/dashboard" },
+    { "path": "packages/enterprise" },
+    { "path": "packages/cli" },
+    { "path": "packages/create-tunnlo" }
+  ],
+  "files": []
 }

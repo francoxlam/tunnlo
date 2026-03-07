@@ -12,7 +12,7 @@
     "build": "npm run build --workspaces",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit",
+    "lint": "npm run build",
     "clean": "rm -rf packages/*/dist"
   },
   "engines": {
