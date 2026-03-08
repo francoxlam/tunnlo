@@ -1,8 +1,16 @@
 {
   "name": "@tunnlo/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Core types, interfaces, and runtime for Tunnlo pipelines",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francoxlam/tunnlo.git",
+    "directory": "packages/core"
+  },
+  "author": "Franco Lam",
+  "homepage": "https://tunnlo.com",
+  "keywords": ["tunnlo", "real-time", "data pipeline", "event processing", "agent"],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

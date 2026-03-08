@@ -265,6 +265,22 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     .error-source { color: #f85149; margin-right: 6px; }
     .empty-msg { padding: 32px 20px; text-align: center; color: #30363d; font-size: 13px; }
 
+    /* Mobile */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+    @media (max-width: 600px) {
+      nav { padding: 0 16px; gap: 8px; }
+      nav .nav-links { display: none; }
+      .main { padding: 16px; }
+      .page-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+      .metrics-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .metric-card { padding: 12px 14px; }
+      .metric-card .metric-value { font-size: 20px; }
+      th, td { padding: 8px 12px; white-space: nowrap; }
+      .response-meta { flex-wrap: wrap; gap: 6px; }
+      .error-list, .response-list { padding: 12px; }
+    }
+
     /* LLM Responses */
     .response-list { padding: 16px 20px; max-height: 480px; overflow-y: auto; }
     .response-item {
@@ -334,10 +350,10 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         <h2>Adapters</h2>
         <span class="count" id="adapter-count">0</span>
       </div>
-      <table id="adapters-table">
+      <div class="table-scroll"><table id="adapters-table">
         <thead><tr><th>Adapter ID</th><th>Status</th><th>Events Produced</th><th>Last Event</th></tr></thead>
         <tbody></tbody>
-      </table>
+      </table></div>
     </div>
 
     <div class="section">
@@ -345,10 +361,10 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         <h2>Filter Chain</h2>
         <span class="count" id="filter-count">0</span>
       </div>
-      <table id="filters-table">
+      <div class="table-scroll"><table id="filters-table">
         <thead><tr><th>Filter</th><th>Events In</th><th>Events Out</th><th>Drop Rate</th><th></th></tr></thead>
         <tbody></tbody>
-      </table>
+      </table></div>
     </div>
 
     <div class="section">
@@ -356,10 +372,10 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         <h2>Recent Events</h2>
         <span class="count" id="event-count">0</span>
       </div>
-      <table id="events-table">
+      <div class="table-scroll"><table id="events-table">
         <thead><tr><th>Time</th><th>Source</th><th>Type</th><th>Priority</th><th>Status</th></tr></thead>
         <tbody></tbody>
-      </table>
+      </table></div>
     </div>
 
     <div class="section">

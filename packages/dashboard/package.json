@@ -1,8 +1,16 @@
 {
   "name": "@tunnlo/dashboard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Web dashboard for Tunnlo pipeline monitoring",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francoxlam/tunnlo.git",
+    "directory": "packages/dashboard"
+  },
+  "author": "Franco Lam",
+  "homepage": "https://tunnlo.com",
+  "keywords": ["tunnlo", "dashboard", "metrics", "monitoring", "web ui"],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,7 +24,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.0"
+    "@tunnlo/core": "0.1.1"
   },
   "files": ["dist", "src/public"]
 }

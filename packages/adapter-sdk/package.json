@@ -1,8 +1,16 @@
 {
   "name": "@tunnlo/adapter-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SDK for building custom Tunnlo adapters",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francoxlam/tunnlo.git",
+    "directory": "packages/adapter-sdk"
+  },
+  "author": "Franco Lam",
+  "homepage": "https://tunnlo.com",
+  "keywords": ["tunnlo", "sdk", "adapter", "plugin", "extensibility"],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,7 +24,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.0"
+    "@tunnlo/core": "0.1.1"
   },
   "files": ["dist"]
 }

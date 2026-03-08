@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Enterprise features for Tunnlo: multi-tenant, RBAC, audit logging",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francoxlam/tunnlo.git",
+    "directory": "packages/enterprise"
+  },
+  "author": "Franco Lam",
+  "homepage": "https://tunnlo.com",
+  "keywords": ["tunnlo", "enterprise", "multi-tenant", "rbac", "audit"],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

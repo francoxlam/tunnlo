@@ -27,7 +27,7 @@ async function choose(question: string, options: { label: string; value: string 
 
 function stdinConfig(model: string): string {
   return `# Tunnlo Pipeline Configuration
-# Docs: https://tunnlo.dev
+# Docs: https://tunnlo.com
 
 sources:
   - id: stdin-input
@@ -82,7 +82,7 @@ behavior:
 function tsharkConfig(model: string, iface: string, captureFilter: string): string {
   const filterLine = captureFilter ? `      capture_filter: "${captureFilter}"` : `      # capture_filter: tcp   # optional BPF filter, e.g. "tcp port 443"`;
   return `# Tunnlo Pipeline Configuration — Network Monitor
-# Docs: https://tunnlo.dev
+# Docs: https://tunnlo.com
 #
 # Prerequisite: tshark must be installed.
 #   macOS:  brew install wireshark
@@ -132,7 +132,7 @@ behavior:
 
 function logConfig(model: string, logPath: string): string {
   return `# Tunnlo Pipeline Configuration — Log Monitor
-# Docs: https://tunnlo.dev
+# Docs: https://tunnlo.com
 
 sources:
   - id: log-file
@@ -165,7 +165,47 @@ behavior:
 `;
 }
 
-function envExample(model: string): string {
+function mcpBridgeConfig(model: string, serverUrl: string): string {
+  return `# Tunnlo Pipeline Configuration — MCP Bridge
+# Docs: https://tunnlo.com
+#
+# Receives events from an MCP-compatible server.
+
+sources:
+  - id: mcp-source
+    adapter: mcp-bridge
+    config:
+      server_url: ${serverUrl}
+
+filters:
+  - type: rate-limiter
+    max_events_per_minute: 30
+
+  - type: dedup
+    window_seconds: 10
+    key_fields:
+      - payload.data
+
+agent:
+  runtime: direct-llm
+  model: ${model}
+  system_prompt: |
+    You are a monitoring agent connected to an MCP server.
+    Analyze incoming tool results and events, identify issues,
+    and recommend actions.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 4000
+
+behavior:
+  on_llm_unreachable: drop_and_alert
+`;
+}
+
+function envExample(model: string, runtime?: string): string {
+  if (runtime === 'openclaw' || runtime === 'langgraph' || runtime === 'crewai') {
+    return '# No API key required — the agent framework handles LLM access.\n';
+  }
   if (model.startsWith('anthropic/')) return 'ANTHROPIC_API_KEY=\n';
   if (model.startsWith('openai/')) return 'OPENAI_API_KEY=\n';
   // ollama — no key needed
@@ -181,7 +221,7 @@ function startInstructions(source: string, projectName: string, model: string): 
     `  npm install`,
   ];
 
-  if (!model.startsWith('ollama/')) {
+  if (model && !model.startsWith('ollama/')) {
     lines.push(`  cp .env.example .env  # add your API key`);
   }
 
@@ -201,11 +241,14 @@ function startInstructions(source: string, projectName: string, model: string): 
 // ── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
-  const projectName = process.argv[2];
+  let projectName = process.argv[2];
 
   if (!projectName) {
-    console.log('Usage: npm create tunnlo <project-name>');
-    process.exit(1);
+    projectName = await ask('Project name: ');
+    if (!projectName) {
+      console.error('Error: project name is required.');
+      process.exit(1);
+    }
   }
 
   if (!/^[a-zA-Z0-9_-]+$/.test(projectName)) {
@@ -222,26 +265,53 @@ async function main() {
     { label: 'Standard input (stdin) — pipe data in manually', value: 'stdin' },
     { label: 'Wireshark / tshark — monitor live network traffic', value: 'tshark' },
     { label: 'Log file — tail a log file on disk', value: 'log' },
+    { label: 'MCP Bridge — receive events from an MCP server', value: 'mcp-bridge' },
   ]);
 
   let iface = 'en0';
   let captureFilter = '';
   let logPath = '/var/log/syslog';
+  let mcpServerUrl = 'http://localhost:3001';
 
   if (source === 'tshark') {
     iface = await ask('  Network interface (e.g. en0, eth0) [en0]: ') || 'en0';
     captureFilter = await ask('  Capture filter — leave blank for all traffic (e.g. tcp, "tcp port 443") [none]: ');
   } else if (source === 'log') {
     logPath = await ask('  Path to log file [/var/log/syslog]: ') || '/var/log/syslog';
+  } else if (source === 'mcp-bridge') {
+    mcpServerUrl = await ask('  MCP server URL [http://localhost:3001]: ') || 'http://localhost:3001';
   }
 
   console.log('');
 
-  const model = await choose('Which LLM will you use?', [
+  const llmChoice = await choose('Which LLM / agent runtime will you use?', [
     { label: 'Anthropic Claude (requires ANTHROPIC_API_KEY)', value: 'anthropic/claude-sonnet-4-5' },
     { label: 'OpenAI GPT-4o (requires OPENAI_API_KEY)', value: 'openai/gpt-4o' },
     { label: 'Ollama — local models, no API key needed', value: 'ollama/llama3.1:8b' },
+    { label: 'OpenClaw — WebSocket agent gateway', value: 'runtime:openclaw' },
+    { label: 'LangGraph — LangChain agent graphs', value: 'runtime:langgraph' },
+    { label: 'CrewAI — multi-agent framework', value: 'runtime:crewai' },
   ]);
+
+  let model = llmChoice;
+  let runtime = 'direct-llm';
+  let runtimeConfig: Record<string, string> = {};
+
+  if (llmChoice.startsWith('runtime:')) {
+    runtime = llmChoice.slice('runtime:'.length);
+    model = '';
+
+    if (runtime === 'openclaw') {
+      runtimeConfig.gateway_url = await ask('  OpenClaw gateway URL [ws://localhost:3000/ws]: ') || 'ws://localhost:3000/ws';
+      runtimeConfig.agent_id = await ask('  Agent ID [default]: ') || 'default';
+    } else if (runtime === 'langgraph') {
+      runtimeConfig.endpoint_url = await ask('  LangGraph endpoint URL [http://localhost:8123]: ') || 'http://localhost:8123';
+      runtimeConfig.graph_id = await ask('  Graph ID [agent]: ') || 'agent';
+    } else if (runtime === 'crewai') {
+      runtimeConfig.endpoint_url = await ask('  CrewAI endpoint URL [http://localhost:8000]: ') || 'http://localhost:8000';
+      runtimeConfig.crew_id = await ask('  Crew ID [default]: ') || 'default';
+    }
+  }
 
   rl.close();
 
@@ -252,8 +322,18 @@ async function main() {
     tunnloYaml = tsharkConfig(model, iface, captureFilter);
   } else if (source === 'log') {
     tunnloYaml = logConfig(model, logPath);
+  } else if (source === 'mcp-bridge') {
+    tunnloYaml = mcpBridgeConfig(model, mcpServerUrl);
   } else {
     tunnloYaml = stdinConfig(model);
+  }
+
+  // If using an agent runtime, replace the agent section
+  if (runtime !== 'direct-llm') {
+    const runtimeYaml = Object.entries(runtimeConfig)
+      .map(([k, v]) => `  ${k}: ${v}`)
+      .join('\n');
+    tunnloYaml = tunnloYaml.replace(/agent:\n  runtime: direct-llm\n  model: [^\n]*\n  system_prompt:[\s\S]*?(?=\nbehavior:)/, `agent:\n  runtime: ${runtime}\n${runtimeYaml}\n`);
   }
 
   // ── Scaffold files ──
@@ -282,7 +362,7 @@ async function main() {
   await writeFile(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2));
   await writeFile(join(projectDir, 'tunnlo.yaml'), tunnloYaml);
   await writeFile(join(projectDir, '.gitignore'), 'node_modules/\n.env\n.env.*\n');
-  await writeFile(join(projectDir, '.env.example'), envExample(model));
+  await writeFile(join(projectDir, '.env.example'), envExample(model, runtime));
 
   console.log(startInstructions(source, projectName, model));
 }

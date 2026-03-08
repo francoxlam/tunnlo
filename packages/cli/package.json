@@ -1,8 +1,16 @@
 {
   "name": "@tunnlo/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI for running Tunnlo pipelines",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francoxlam/tunnlo.git",
+    "directory": "packages/cli"
+  },
+  "author": "Franco Lam",
+  "homepage": "https://tunnlo.com",
+  "keywords": ["tunnlo", "cli", "pipeline", "configuration"],
   "type": "module",
   "bin": {
     "tunnlo": "dist/bin.js"
@@ -13,12 +21,12 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.0",
-    "@tunnlo/adapters": "0.1.0",
-    "@tunnlo/filters": "0.1.0",
-    "@tunnlo/bridge-llm": "0.1.0",
-    "@tunnlo/actions": "0.1.0",
-    "@tunnlo/dashboard": "0.1.0",
+    "@tunnlo/core": "0.1.1",
+    "@tunnlo/adapters": "0.1.1",
+    "@tunnlo/filters": "0.1.1",
+    "@tunnlo/bridge-llm": "0.1.1",
+    "@tunnlo/actions": "0.1.1",
+    "@tunnlo/dashboard": "0.1.1",
     "commander": "^13.0.0",
     "yaml": "^2.7.0"
   },

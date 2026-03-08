@@ -1,8 +1,16 @@
 {
   "name": "create-tunnlo",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "description": "Scaffolding tool for new Tunnlo projects",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francoxlam/tunnlo.git",
+    "directory": "packages/create-tunnlo"
+  },
+  "author": "Franco Lam",
+  "homepage": "https://tunnlo.com",
+  "keywords": ["tunnlo", "scaffolding", "create", "project generator"],
   "type": "module",
   "bin": {
     "create-tunnlo": "dist/index.js"
