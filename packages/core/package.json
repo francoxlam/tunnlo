@@ -1,6 +1,6 @@
 {
   "name": "@tunnlo/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Core types, interfaces, and runtime for Tunnlo pipelines",
   "license": "MIT",
   "repository": {

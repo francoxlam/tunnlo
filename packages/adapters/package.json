@@ -1,6 +1,6 @@
 {
   "name": "@tunnlo/adapters",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Built-in data source adapters for Tunnlo",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.1"
+    "@tunnlo/core": "0.1.2"
   },
   "peerDependencies": {
     "kafkajs": "^2.2.4"

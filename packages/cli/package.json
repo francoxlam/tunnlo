@@ -1,6 +1,6 @@
 {
   "name": "@tunnlo/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CLI for running Tunnlo pipelines",
   "license": "MIT",
   "repository": {
@@ -21,12 +21,12 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.1",
-    "@tunnlo/adapters": "0.1.1",
+    "@tunnlo/core": "0.1.2",
+    "@tunnlo/adapters": "0.1.2",
     "@tunnlo/filters": "0.1.1",
     "@tunnlo/bridge-llm": "0.1.1",
     "@tunnlo/actions": "0.1.1",
-    "@tunnlo/dashboard": "0.1.1",
+    "@tunnlo/dashboard": "0.1.2",
     "commander": "^13.0.0",
     "yaml": "^2.7.0"
   },
