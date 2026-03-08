@@ -231,9 +231,34 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     }
     .badge.received { background: #1f6feb20; color: #58a6ff; }
     .badge.filtered { background: #d2992220; color: #d29922; }
+    .badge.processing { background: #a371f720; color: #a371f7; animation: pulse 1.5s ease-in-out infinite; }
     .badge.sent { background: #3fb95020; color: #3fb950; }
     .badge.dropped { background: #f8514920; color: #f85149; }
     .badge.buffered { background: #a371f720; color: #a371f7; }
+
+    /* Activity bar */
+    .activity-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-size: 12px;
+      color: #8b949e;
+      border-bottom: 1px solid #21262d;
+      background: #0d1117;
+    }
+    .activity-bar .activity-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #484f58;
+      flex-shrink: 0;
+    }
+    .activity-bar.active .activity-dot {
+      background: #a371f7;
+      animation: pulse 1s ease-in-out infinite;
+    }
+    .activity-bar .activity-text { flex: 1; }
 
     /* Progress bar */
     .bar-track {
@@ -372,6 +397,10 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
         <h2>Recent Events</h2>
         <span class="count" id="event-count">0</span>
       </div>
+      <div class="activity-bar" id="activity-bar">
+        <span class="activity-dot"></span>
+        <span class="activity-text" id="activity-text">Idle</span>
+      </div>
       <div class="table-scroll"><table id="events-table">
         <thead><tr><th>Time</th><th>Source</th><th>Type</th><th>Priority</th><th>Status</th></tr></thead>
         <tbody></tbody>
@@ -428,6 +457,8 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       return pct + '%<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>';
     }
 
+    let lastRespCount = 0;
+
     async function refresh() {
       try {
         const res = await fetch('/api/metrics');
@@ -461,6 +492,17 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
             '</td><td style="width:140px">' + dropBar(f.drop_rate) + '</td><td></td></tr>'
           ).join('');
 
+        const activeLlm = m.active_llm_requests || 0;
+        const actBar = document.getElementById('activity-bar');
+        const actText = document.getElementById('activity-text');
+        if (activeLlm > 0) {
+          actBar.className = 'activity-bar active';
+          actText.textContent = 'Waiting for LLM response... (' + activeLlm + ' in flight)';
+        } else {
+          actBar.className = 'activity-bar';
+          actText.textContent = 'Idle';
+        }
+
         document.getElementById('event-count').textContent = m.recent_events.length;
         const eBody = document.querySelector('#events-table tbody');
         eBody.innerHTML = m.recent_events.length === 0
@@ -472,20 +514,34 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
             '</td><td><span class="badge ' + esc(e.status) + '">' + esc(e.status) + '</span></td></tr>'
           ).join('');
 
-        document.getElementById('response-count').textContent = (m.llm_responses || []).length;
-        const respDiv = document.getElementById('responses');
         const resps = m.llm_responses || [];
-        respDiv.innerHTML = resps.length === 0
-          ? '<div class="empty-msg">No responses yet</div>'
-          : resps.slice().reverse().map(r =>
-            '<div class="response-item"><div class="response-meta">' +
-            '<span class="resp-source">' + esc(r.source_id) + '</span>' +
-            '<span>' + esc(new Date(r.timestamp).toLocaleTimeString()) + '</span>' +
-            '<span class="resp-tokens">' + r.tokens_used + ' tokens</span>' +
-            '<span class="resp-latency">' + r.latency_ms + 'ms</span>' +
-            (r.has_actions ? '<span class="resp-actions">ACTIONS</span>' : '') +
-            '</div><div class="response-content">' + esc(r.content) + '</div></div>'
-          ).join('');
+        document.getElementById('response-count').textContent = resps.length;
+        const respDiv = document.getElementById('responses');
+        if (resps.length === 0) {
+          respDiv.innerHTML = '<div class="empty-msg">No responses yet</div>';
+          lastRespCount = 0;
+        } else if (resps.length > lastRespCount) {
+          if (lastRespCount === 0) {
+            respDiv.innerHTML = '';
+          }
+          const newResps = resps.slice(lastRespCount);
+          const fragment = document.createDocumentFragment();
+          newResps.reverse().forEach(r => {
+            const item = document.createElement('div');
+            item.className = 'response-item';
+            item.innerHTML =
+              '<div class="response-meta">' +
+              '<span class="resp-source">' + esc(r.source_id) + '</span>' +
+              '<span>' + esc(new Date(r.timestamp).toLocaleTimeString()) + '</span>' +
+              '<span class="resp-tokens">' + r.tokens_used + ' tokens</span>' +
+              '<span class="resp-latency">' + r.latency_ms + 'ms</span>' +
+              (r.has_actions ? '<span class="resp-actions">ACTIONS</span>' : '') +
+              '</div><div class="response-content">' + esc(r.content) + '</div>';
+            fragment.appendChild(item);
+          });
+          respDiv.insertBefore(fragment, respDiv.firstChild);
+          lastRespCount = resps.length;
+        }
 
         document.getElementById('error-count').textContent = m.errors.length;
         const errDiv = document.getElementById('errors');

@@ -21,6 +21,9 @@ export interface MetricsPort {
   recordTokensUsed(tokens: number): void;
   recordError(source: string, message: string): void;
   updateAdapterStatus(id: string, status: string): void;
+  updateEventStatus?(eventId: string, status: string): void;
+  recordLlmRequestStart?(): void;
+  recordLlmRequestEnd?(): void;
   recordLlmResponse?(entry: {
     event_id: string;
     source_id: string;
@@ -82,8 +85,13 @@ export class Pipeline {
       this.metrics?.recordEventReceived(event);
       const { result, buffered } = this.applyFilters(event);
       if (result) {
+        this.metrics?.updateEventStatus?.(result.event_id, 'filtered');
+        getLogger().debug(`[tunnlo] Event ${result.event_id} passed filters, queuing for LLM`);
         await this.bus.publish('filtered', result);
-      } else if (!buffered) {
+      } else if (buffered) {
+        getLogger().debug(`[tunnlo] Event ${event.event_id} buffered by filter`);
+      } else {
+        this.metrics?.updateEventStatus?.(event.event_id, 'dropped');
         this.metrics?.recordEventDropped();
       }
     });
@@ -197,13 +205,18 @@ export class Pipeline {
     }
 
     const startTime = Date.now();
+    this.metrics?.updateEventStatus?.(event.event_id, 'processing');
+    this.metrics?.recordLlmRequestStart?.();
+    getLogger().info(`[tunnlo] Event ${event.event_id} (${event.source_id}) -> sending to LLM...`);
 
     try {
       const response = await this.bridge.send(event, this.agentConfig.system_prompt);
       const latencyMs = Date.now() - startTime;
+      this.metrics?.recordLlmRequestEnd?.();
 
       this.tokensUsedThisHour += response.tokens_used;
       this.metrics?.recordEventSentToLlm(event.event_id, latencyMs);
+      this.metrics?.updateEventStatus?.(event.event_id, 'sent');
       this.metrics?.recordTokensUsed(response.tokens_used);
       this.metrics?.recordLlmResponse?.({
         event_id: event.event_id,
@@ -214,8 +227,7 @@ export class Pipeline {
         has_actions: Array.isArray(response.actions) && response.actions.length > 0,
       });
 
-      getLogger().info(`\n[tunnlo] Event ${event.event_id} (${event.source_id})`);
-      getLogger().debug(`[tunnlo] Tokens used: ${response.tokens_used} | Latency: ${latencyMs}ms`);
+      getLogger().info(`[tunnlo] Event ${event.event_id} (${event.source_id}) <- LLM responded [${latencyMs}ms, ${response.tokens_used} tokens]`);
       getLogger().info(`[tunnlo] Response:\n${response.content}\n`);
 
       if (response.actions) {
@@ -234,6 +246,8 @@ export class Pipeline {
         }
       }
     } catch (err) {
+      this.metrics?.recordLlmRequestEnd?.();
+      this.metrics?.updateEventStatus?.(event.event_id, 'dropped');
       getLogger().error('[tunnlo:pipeline] LLM bridge error:', err);
       this.metrics?.recordError('bridge', `LLM error: ${err}`);
       if (this.behavior.on_llm_unreachable === 'drop_and_alert') {

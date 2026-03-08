@@ -202,6 +202,57 @@ behavior:
 `;
 }
 
+function kafkaConfig(model: string, brokers: string, topic: string, groupId: string): string {
+  return `# Tunnlo Pipeline Configuration — Kafka Consumer
+# Docs: https://tunnlo.com
+#
+# Prerequisite: a running Kafka cluster accessible at the configured brokers.
+
+sources:
+  - id: kafka-source
+    adapter: kafka
+    config:
+      brokers:
+${brokers.split(',').map((b) => `        - ${b.trim()}`).join('\n')}
+      topic: ${topic}
+      group_id: ${groupId}
+      # from_beginning: false        # set true to replay from earliest offset
+      # ssl: false                   # enable for TLS connections
+      # sasl:                        # uncomment for authenticated clusters
+      #   mechanism: plain           # plain | scram-sha-256 | scram-sha-512
+      #   username: user
+      #   password: secret
+
+filters:
+  - type: rate-limiter
+    max_events_per_minute: 60
+
+  - type: dedup
+    window_seconds: 10
+    key_fields:
+      - payload.data
+
+agent:
+  runtime: direct-llm
+  model: ${model}
+  system_prompt: |
+    You are a real-time event processing agent consuming messages from Kafka.
+    Analyze each event for anomalies, errors, or patterns worth flagging.
+    Provide concise assessments and recommended actions.
+
+    If you detect an issue that warrants an alert, trigger a webhook:
+    \`\`\`json:actions
+    [{"type": "webhook", "config": {}, "payload": {"severity": "high", "message": "description"}}]
+    \`\`\`
+  token_budget:
+    max_per_hour: 100000
+    max_per_event: 4000
+
+behavior:
+  on_llm_unreachable: drop_and_alert
+`;
+}
+
 function envExample(model: string, runtime?: string): string {
   if (runtime === 'openclaw' || runtime === 'langgraph' || runtime === 'crewai') {
     return '# No API key required — the agent framework handles LLM access.\n';
@@ -231,6 +282,13 @@ function startInstructions(source: string, projectName: string, model: string): 
       '  # tshark must be installed:',
       '  #   macOS:  brew install wireshark',
       '  #   Ubuntu: sudo apt install tshark',
+    );
+  } else if (source === 'kafka') {
+    lines.push(
+      '',
+      '  # Make sure your Kafka cluster is running and accessible.',
+      '  # For local development, try: docker run -d --name kafka \\',
+      '  #   -p 9092:9092 apache/kafka:latest',
     );
   }
 
@@ -266,12 +324,16 @@ async function main() {
     { label: 'Wireshark / tshark — monitor live network traffic', value: 'tshark' },
     { label: 'Log file — tail a log file on disk', value: 'log' },
     { label: 'MCP Bridge — receive events from an MCP server', value: 'mcp-bridge' },
+    { label: 'Kafka — consume messages from a Kafka topic', value: 'kafka' },
   ]);
 
   let iface = 'en0';
   let captureFilter = '';
   let logPath = '/var/log/syslog';
   let mcpServerUrl = 'http://localhost:3001';
+  let kafkaBrokers = 'localhost:9092';
+  let kafkaTopic = 'events';
+  let kafkaGroupId = 'tunnlo-adapter';
 
   if (source === 'tshark') {
     iface = await ask('  Network interface (e.g. en0, eth0) [en0]: ') || 'en0';
@@ -280,6 +342,10 @@ async function main() {
     logPath = await ask('  Path to log file [/var/log/syslog]: ') || '/var/log/syslog';
   } else if (source === 'mcp-bridge') {
     mcpServerUrl = await ask('  MCP server URL [http://localhost:3001]: ') || 'http://localhost:3001';
+  } else if (source === 'kafka') {
+    kafkaBrokers = await ask('  Broker addresses (comma-separated) [localhost:9092]: ') || 'localhost:9092';
+    kafkaTopic = await ask('  Topic to consume [events]: ') || 'events';
+    kafkaGroupId = await ask('  Consumer group ID [tunnlo-adapter]: ') || 'tunnlo-adapter';
   }
 
   console.log('');
@@ -324,6 +390,8 @@ async function main() {
     tunnloYaml = logConfig(model, logPath);
   } else if (source === 'mcp-bridge') {
     tunnloYaml = mcpBridgeConfig(model, mcpServerUrl);
+  } else if (source === 'kafka') {
+    tunnloYaml = kafkaConfig(model, kafkaBrokers, kafkaTopic, kafkaGroupId);
   } else {
     tunnloYaml = stdinConfig(model);
   }
@@ -340,6 +408,19 @@ async function main() {
 
   await mkdir(projectDir, { recursive: true });
 
+  const deps: Record<string, string> = {
+    '@tunnlo/cli': '^0.1.0',
+    '@tunnlo/core': '^0.1.0',
+    '@tunnlo/adapters': '^0.1.0',
+    '@tunnlo/filters': '^0.1.0',
+    '@tunnlo/bridge-llm': '^0.1.0',
+    '@tunnlo/actions': '^0.1.0',
+  };
+
+  if (source === 'kafka') {
+    deps['kafkajs'] = '^2.2.4';
+  }
+
   const pkg = {
     name: projectName,
     version: '0.1.0',
@@ -349,14 +430,7 @@ async function main() {
       start: 'tunnlo start tunnlo.yaml',
       validate: 'tunnlo validate tunnlo.yaml',
     },
-    dependencies: {
-      '@tunnlo/cli': '^0.1.0',
-      '@tunnlo/core': '^0.1.0',
-      '@tunnlo/adapters': '^0.1.0',
-      '@tunnlo/filters': '^0.1.0',
-      '@tunnlo/bridge-llm': '^0.1.0',
-      '@tunnlo/actions': '^0.1.0',
-    },
+    dependencies: deps,
   };
 
   await writeFile(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2));

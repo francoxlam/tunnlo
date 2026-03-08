@@ -11,6 +11,7 @@ export interface PipelineMetrics {
   tokens_used_this_hour: number;
   events_per_second: number;
   avg_latency_ms: number;
+  active_llm_requests: number;
   adapters: AdapterMetrics[];
   filters: FilterMetrics[];
   recent_events: RecentEvent[];
@@ -38,7 +39,7 @@ export interface RecentEvent {
   timestamp: string;
   event_type: string;
   priority?: number;
-  status: 'received' | 'filtered' | 'sent' | 'dropped';
+  status: 'received' | 'filtered' | 'processing' | 'sent' | 'dropped';
 }
 
 export interface ErrorEntry {
@@ -74,6 +75,7 @@ export class MetricsCollector {
   private recentEvents: RecentEvent[] = [];
   private errors: ErrorEntry[] = [];
   private llmResponses: LlmResponseEntry[] = [];
+  private activeLlmRequests = 0;
   private maxRecentEvents = 50;
   private maxErrors = 20;
   private maxLlmResponses = 30;
@@ -177,6 +179,21 @@ export class MetricsCollector {
     }
   }
 
+  updateEventStatus(eventId: string, status: RecentEvent['status']): void {
+    const event = this.recentEvents.find((e) => e.event_id === eventId);
+    if (event) {
+      event.status = status;
+    }
+  }
+
+  recordLlmRequestStart(): void {
+    this.activeLlmRequests++;
+  }
+
+  recordLlmRequestEnd(): void {
+    this.activeLlmRequests = Math.max(0, this.activeLlmRequests - 1);
+  }
+
   getMetrics(): PipelineMetrics {
     const now = Date.now();
     this.pruneTimestamps();
@@ -199,6 +216,7 @@ export class MetricsCollector {
       tokens_used_this_hour: this.tokensThisHour,
       events_per_second: Math.round(eps * 100) / 100,
       avg_latency_ms: Math.round(avgLatency),
+      active_llm_requests: this.activeLlmRequests,
       adapters: [...this.adapterMetrics.values()],
       filters: [...this.filterMetrics.values()],
       recent_events: this.recentEvents.slice(-this.maxRecentEvents),

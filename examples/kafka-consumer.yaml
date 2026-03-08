@@ -1,0 +1,25 @@
+sources:
+  - id: kafka-source
+    adapter: kafka
+    config:
+      brokers:
+        - localhost:9092
+      topic: test-events
+      group_id: tunnlo-test
+
+filters:
+  - type: rate-limiter
+    max_events_per_minute: 30
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: |
+    You are a monitoring agent. Analyze each incoming Kafka event
+    and respond with a brief assessment.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 4000
+
+behavior:
+  on_llm_unreachable: drop_and_alert

@@ -10,7 +10,7 @@
   },
   "author": "Franco Lam",
   "homepage": "https://tunnlo.com",
-  "keywords": ["tunnlo", "adapter", "tshark", "log-tailer", "mcp", "data source"],
+  "keywords": ["tunnlo", "adapter", "tshark", "log-tailer", "mcp", "kafka", "data source"],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,6 +25,14 @@
   },
   "dependencies": {
     "@tunnlo/core": "0.1.1"
+  },
+  "peerDependencies": {
+    "kafkajs": "^2.2.4"
+  },
+  "peerDependenciesMeta": {
+    "kafkajs": {
+      "optional": true
+    }
   },
   "files": ["dist"]
 }

@@ -19,8 +19,9 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
+    "kafkajs": "^2.2.4",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^3.0.0"
   }
 }
