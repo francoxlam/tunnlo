@@ -10,7 +10,7 @@ import type {
   MessageBus,
 } from '@tunnlo/core';
 import { InMemoryBus, RedisStreamsBus, KafkaBus, FastBus } from '@tunnlo/core';
-import { TsharkAdapter, LogTailerAdapter, StdinAdapter, McpBridgeAdapter, KafkaAdapter } from '@tunnlo/adapters';
+import { TsharkAdapter, LogTailerAdapter, StdinAdapter, McpBridgeAdapter, KafkaAdapter, GoogleDocsAdapter } from '@tunnlo/adapters';
 import {
   RateLimiterFilter,
   ContentFilter,
@@ -34,6 +34,8 @@ export function createAdapter(config: AdapterConfig): Adapter {
       return new McpBridgeAdapter();
     case 'kafka':
       return new KafkaAdapter();
+    case 'google-docs':
+      return new GoogleDocsAdapter();
     default:
       throw new Error(`Unknown adapter type: ${config.adapter}`);
   }

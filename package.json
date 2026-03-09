@@ -23,5 +23,8 @@
     "kafkajs": "^2.2.4",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "googleapis": "^140.0.1"
   }
 }

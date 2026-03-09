@@ -253,6 +253,78 @@ behavior:
 `;
 }
 
+function googleDocsConfig(model: string, credentialsPath: string, docIds: string[], watchTypes: string[]): string {
+  const docIdLines = docIds.map((id) => `        - ${id}`).join('\n');
+  const watchLines = watchTypes.map((t) => `        - ${t}`).join('\n');
+  return `# Tunnlo Pipeline Configuration — Google Docs Monitor
+# Docs: https://tunnlo.com
+#
+# Watches Google Docs for new comments, suggestions, and edits,
+# then sends them to an LLM for analysis and action.
+#
+# Prerequisites:
+#   1. npm install googleapis
+#   2. Create a Google Cloud project with Docs & Drive APIs enabled
+#   3. Create a service account key (JSON) and save it at the path below
+#   4. Share your Google Doc(s) with the service account email (Commenter access)
+#      (find the email in your service account JSON under "client_email")
+
+sources:
+  - id: google-docs
+    adapter: google-docs
+    config:
+      credentials_path: ${credentialsPath}
+      doc_ids:
+${docIdLines}
+      watch:
+${watchLines}
+      poll_interval_ms: 15000           # check every 15 seconds
+      # include_resolved: false         # set true to include resolved comments
+
+filters:
+  # Batch rapid edits from the same author into one event
+  - type: dedup
+    window_seconds: 30
+    key_fields:
+      - payload.doc_id
+      - payload.type
+      - payload.author
+
+  # Aggregate changes within a 60-second window
+  - type: windowed-aggregation
+    window_seconds: 60
+
+  - type: rate-limiter
+    max_events_per_minute: 10
+
+agent:
+  runtime: direct-llm
+  model: ${model}
+  system_prompt: |
+    You are a document collaboration assistant monitoring Google Docs.
+
+    When you receive events, analyze them and respond concisely:
+
+    - **Comments**: Summarize the comment and suggest a response.
+      If it's a question, answer it based on the context provided.
+    - **Suggestions**: Evaluate the suggested edit (e.g. Replace "X" → "Y")
+      and recommend whether to accept or reject it with a brief reason.
+    - **Edits**: Summarize what changed and flag anything that might need
+      review (e.g., deleted sections, restructured content).
+
+    Keep responses to 2-3 sentences. Be helpful and actionable.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 4000
+
+behavior:
+  on_llm_unreachable: buffer_limited
+
+dashboard:
+  enabled: true
+`;
+}
+
 function envExample(model: string, runtime?: string): string {
   if (runtime === 'openclaw' || runtime === 'langgraph' || runtime === 'crewai') {
     return '# No API key required — the agent framework handles LLM access.\n';
@@ -276,7 +348,17 @@ function startInstructions(source: string, projectName: string, model: string): 
     lines.push(`  cp .env.example .env  # add your API key`);
   }
 
-  if (source === 'tshark') {
+  if (source === 'google-docs') {
+    lines.push(
+      '',
+      '  # Google Docs setup:',
+      '  #   1. Place your service account JSON key file in the project',
+      '  #   2. Share your Google Doc(s) with the service account email',
+      '  #      (use "Commenter" access so comments can be read)',
+      '  #   3. Replace YOUR_DOC_ID_HERE in tunnlo.yaml with your doc ID',
+      '  #      (from the URL: docs.google.com/document/d/{DOC_ID}/edit)',
+    );
+  } else if (source === 'tshark') {
     lines.push(
       '',
       '  # tshark must be installed:',
@@ -325,6 +407,7 @@ async function main() {
     { label: 'Log file — tail a log file on disk', value: 'log' },
     { label: 'MCP Bridge — receive events from an MCP server', value: 'mcp-bridge' },
     { label: 'Kafka — consume messages from a Kafka topic', value: 'kafka' },
+    { label: 'Google Docs — monitor comments, suggestions & edits', value: 'google-docs' },
   ]);
 
   let iface = 'en0';
@@ -334,8 +417,29 @@ async function main() {
   let kafkaBrokers = 'localhost:9092';
   let kafkaTopic = 'events';
   let kafkaGroupId = 'tunnlo-adapter';
+  let gdocsCredentials = './service-account.json';
+  let gdocsDocIds: string[] = [];
+  let gdocsWatch: string[] = [];
 
-  if (source === 'tshark') {
+  if (source === 'google-docs') {
+    console.log('\n  Google Docs Setup');
+    console.log('  You need a Google Cloud service account with Docs & Drive APIs enabled.');
+    console.log('  Download the JSON key file and share your doc(s) with the service account email.\n');
+    gdocsCredentials = await ask('  Path to service account JSON [./service-account.json]: ') || './service-account.json';
+    const docIdsInput = await ask('  Document ID(s) — comma-separated, from the URL after /d/ : ');
+    gdocsDocIds = docIdsInput
+      ? docIdsInput.split(',').map((id) => id.trim()).filter(Boolean)
+      : ['YOUR_DOC_ID_HERE'];
+    if (gdocsDocIds.length === 0) gdocsDocIds = ['YOUR_DOC_ID_HERE'];
+
+    const watchChoice = await choose('  What do you want to monitor?', [
+      { label: 'Comments and suggestions (recommended)', value: 'comments,suggestions' },
+      { label: 'Everything — comments, suggestions, and edits', value: 'comments,suggestions,edits' },
+      { label: 'Comments only', value: 'comments' },
+      { label: 'Suggestions only', value: 'suggestions' },
+    ]);
+    gdocsWatch = watchChoice.split(',');
+  } else if (source === 'tshark') {
     iface = await ask('  Network interface (e.g. en0, eth0) [en0]: ') || 'en0';
     captureFilter = await ask('  Capture filter — leave blank for all traffic (e.g. tcp, "tcp port 443") [none]: ');
   } else if (source === 'log') {
@@ -384,7 +488,9 @@ async function main() {
   // ── Generate config ──
 
   let tunnloYaml: string;
-  if (source === 'tshark') {
+  if (source === 'google-docs') {
+    tunnloYaml = googleDocsConfig(model, gdocsCredentials, gdocsDocIds, gdocsWatch);
+  } else if (source === 'tshark') {
     tunnloYaml = tsharkConfig(model, iface, captureFilter);
   } else if (source === 'log') {
     tunnloYaml = logConfig(model, logPath);
@@ -419,6 +525,9 @@ async function main() {
 
   if (source === 'kafka') {
     deps['kafkajs'] = '^2.2.4';
+  }
+  if (source === 'google-docs') {
+    deps['googleapis'] = '^140.0.0';
   }
 
   const pkg = {

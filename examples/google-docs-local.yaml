@@ -1,0 +1,51 @@
+# Google Docs → Ollama local test
+#
+# Watches a Google Doc for comments/suggestions/edits,
+# sends them to a local Ollama model for analysis.
+#
+# Prerequisites:
+#   1. npm install googleapis
+#   2. Create a Google Cloud project with Docs & Drive APIs enabled
+#   3. Create a service account key (JSON) and save as ./service-account.json
+#   4. Share your Google Doc with the service account email (Viewer access)
+#   5. Ollama running locally with llama3.1:8b
+#
+# Usage:
+#   npx tunnlo start examples/google-docs-local.yaml
+
+sources:
+  - id: my-docs
+    adapter: google-docs
+    config:
+      credentials_path: ./service-account.json
+      doc_ids:
+        - [GOOGLE_DOC_ID]       # Replace with your doc ID from the URL
+      watch:
+        - comments
+        - suggestions
+        - edits
+      poll_interval_ms: 10000     # Check every 10 seconds
+
+filters:
+  - type: dedup
+    window_seconds: 30
+    key_fields: ["payload.doc_id", "payload.type", "payload.author"]
+
+agent:
+  runtime: direct-llm
+  model: ollama/llama3.1:8b
+  system_prompt: |
+    You are a document collaboration assistant.
+    When you receive a comment or suggestion from a Google Doc,
+    briefly summarize it and suggest a response.
+    Keep it to 2-3 sentences.
+  token_budget:
+    max_per_hour: 50000
+    max_per_event: 4000
+
+behavior:
+  on_llm_unreachable: drop_and_alert
+  log_level: debug
+
+dashboard:
+  enabled: true

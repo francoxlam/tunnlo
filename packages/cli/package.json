@@ -1,6 +1,6 @@
 {
   "name": "@tunnlo/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "CLI for running Tunnlo pipelines",
   "license": "MIT",
   "repository": {

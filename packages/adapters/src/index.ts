@@ -8,3 +8,5 @@ export { HybridAdapter } from './hybrid.js';
 export type { HybridAdapterConfig } from './hybrid.js';
 export { KafkaAdapter } from './kafka.js';
 export type { KafkaAdapterConfig } from './kafka.js';
+export { GoogleDocsAdapter } from './google-docs.js';
+export type { GoogleDocsAdapterConfig } from './google-docs.js';
