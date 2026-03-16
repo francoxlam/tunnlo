@@ -31,7 +31,7 @@
 One command. No config. No API keys.
 
 ```bash
-npx @tunnlo/cli demo
+npx @tunnlo/cli@latest demo
 ```
 
 This streams your machine's live system logs + stdin through a local LLM ([Ollama](https://ollama.com)), with AI analysis appearing token-by-token in your terminal:
