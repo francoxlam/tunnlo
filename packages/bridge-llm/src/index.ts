@@ -9,3 +9,11 @@ export { LangGraphBridge } from './langgraph.js';
 export type { LangGraphBridgeConfig } from './langgraph.js';
 export { CrewAIBridge } from './crewai.js';
 export type { CrewAIBridgeConfig } from './crewai.js';
+export { BenchmarkRunner, formatReport } from './benchmark.js';
+export type {
+  BenchmarkConfig,
+  BridgeSpec,
+  BridgeBenchmarkResult,
+  BenchmarkReport,
+  IterationResult,
+} from './benchmark.js';

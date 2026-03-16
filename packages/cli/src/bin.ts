@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { loadConfig } from './config.js';
 import { buildAndRun } from './runner.js';
+import { runBench } from './bench.js';
 import type { LogLevel, LogFormat } from '@tunnlo/core';
 import { getLogger, Logger, setGlobalLogger } from '@tunnlo/core';
 
@@ -208,6 +209,20 @@ program
     } catch {
       console.error(`[tunnlo] Could not connect to dashboard on port ${port}.`);
       console.error('  Make sure a pipeline is running with "tunnlo start <config>".');
+      process.exit(1);
+    }
+  });
+
+program
+  .command('bench')
+  .description('Benchmark LLM bridges: compare latency, throughput, and token usage')
+  .argument('<config>', 'Path to benchmark YAML config file')
+  .option('--json', 'Output results as JSON')
+  .action(async (configPath: string, options: { json?: boolean }) => {
+    try {
+      await runBench(configPath, options);
+    } catch (err) {
+      console.error('[tunnlo bench] Error:', (err as Error).message);
       process.exit(1);
     }
   });

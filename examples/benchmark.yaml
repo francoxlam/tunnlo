@@ -1,0 +1,55 @@
+# Tunnlo Benchmark Config
+# Compare LLM performance across different providers/models.
+#
+# Usage:
+#   tunnlo bench examples/benchmark.yaml
+#   tunnlo bench examples/benchmark.yaml --json
+
+system_prompt: |
+  You are a network security analyst. Analyze the incoming event
+  and respond with a brief assessment (2-3 sentences).
+
+iterations: 3   # measured runs per bridge per event
+warmup: 1       # warmup runs (not counted in results)
+
+# Test events sent to each bridge. Omit for a default synthetic event.
+events:
+  - source_id: firewall
+    event_type: ALERT
+    payload:
+      src_ip: "192.168.1.105"
+      dst_ip: "10.0.0.1"
+      port: 443
+      protocol: TCP
+      action: blocked
+      rule: "deny-outbound-443"
+      bytes: 2048
+
+  - source_id: auth-log
+    event_type: DATA
+    payload:
+      user: admin
+      action: login_failed
+      ip: "203.0.113.42"
+      attempts: 5
+      window_seconds: 60
+
+# Bridges to benchmark. Each gets the same events + system prompt.
+bridges:
+  # Local Ollama models — no API key needed
+  - provider: ollama
+    model: llama3.1:8b
+
+  # Uncomment to compare additional models:
+  # - provider: ollama
+  #   model: mistral:7b
+
+  # - provider: ollama
+  #   model: gemma2:9b
+
+  # Cloud providers — set env vars or inline api_key
+  # - provider: openai
+  #   model: gpt-4o-mini
+
+  - provider: anthropic
+    model: claude-sonnet-4-5
