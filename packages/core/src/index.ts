@@ -30,7 +30,7 @@ export { InMemoryBus } from './bus.js';
 export type { MessageBus, EventCallback } from './bus.js';
 export { JsonFileStateStore } from './state-store.js';
 export { Pipeline } from './pipeline.js';
-export type { PipelineOptions, MetricsPort } from './pipeline.js';
+export type { PipelineOptions, AgentEntry, MetricsPort } from './pipeline.js';
 export { Logger, getLogger, setGlobalLogger } from './logger.js';
 export type { LogLevel, LogFormat, LoggerOptions } from './logger.js';
 export { RedisStreamsBus } from './redis-bus.js';

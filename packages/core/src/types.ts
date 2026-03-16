@@ -89,11 +89,14 @@ export interface TokenBudget {
 }
 
 export interface AgentConfig {
+  id?: string;
   runtime: string;
   model: string;
   system_prompt: string;
   token_budget?: TokenBudget;
   actions?: ActionConfig[];
+  /** When set, this agent only receives events from these source IDs. Omit for fan-out (all events). */
+  sources?: string[];
 }
 
 export interface ActionConfig {
@@ -127,7 +130,10 @@ export interface OutputConfig {
 export interface PipelineConfig {
   sources: AdapterConfig[];
   filters: FilterConfig[];
-  agent: AgentConfig;
+  /** Single agent (backward compatible). Use `agent` or `agents`, not both. */
+  agent?: AgentConfig;
+  /** Multiple agents with optional per-agent source routing. */
+  agents?: AgentConfig[];
   behavior?: BehaviorConfig;
   bus?: BusConfig;
   dashboard?: DashboardConfig;

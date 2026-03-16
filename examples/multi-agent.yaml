@@ -1,0 +1,77 @@
+# Tunnlo Example: Multi-Agent with Source Routing
+# Routes different data sources to specialized LLM agents.
+#
+# - Network events go to a local Ollama model for fast triage
+# - Application logs go to Claude for deeper analysis
+# - A catch-all agent (no `sources`) receives everything for correlation
+#
+# Usage:
+#   npx tunnlo start examples/multi-agent.yaml
+#
+# Setup:
+#   touch /tmp/app.log
+#   export ANTHROPIC_API_KEY=sk-...
+#
+# Prerequisites:
+#   - Ollama running locally with llama3.1:8b
+#   - Anthropic API key for Claude
+
+sources:
+  - id: stdin-input
+    adapter: native/stdin
+    config: {}
+
+  - id: app-logs
+    adapter: native/log-tailer
+    config:
+      file_path: /tmp/app.log
+      poll_interval_ms: 500
+
+filters:
+  - type: rate-limiter
+    max_events_per_minute: 30
+
+agents:
+  - id: prompt-triage
+    runtime: direct-llm
+    model: ollama/llama3.1:8b
+    sources: [stdin-input]
+    system_prompt: |
+      You are a prompt security triage agent.
+      Analyze prompt and flag suspicious patterns.
+      Be concise — one-line verdicts for normal traffic.
+    token_budget:
+      max_per_hour: 50000
+      max_per_event: 2000
+
+  - id: log-analyzer
+    runtime: direct-llm
+    model: anthropic/claude-sonnet-4-5
+    sources: [app-logs]
+    system_prompt: |
+      You are an application log analyst.
+      Identify errors, warnings, and anomalies.
+      Suggest root causes and remediation steps.
+    token_budget:
+      max_per_hour: 100000
+      max_per_event: 4000
+
+  - id: correlator
+    runtime: direct-llm
+    model: ollama/llama3.1:8b
+    # No `sources` = receives ALL events (fan-out)
+    system_prompt: |
+      You are a cross-source correlation agent.
+      You receive events from multiple sources (check source_id).
+      Look for patterns across network and application events.
+      Flag if network issues correlate with application errors.
+    token_budget:
+      max_per_hour: 50000
+      max_per_event: 3000
+
+dashboard:
+  enabled: true
+  port: 4400
+
+behavior:
+  on_llm_unreachable: drop_and_alert

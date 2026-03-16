@@ -1,4 +1,4 @@
-import type { PipelineConfig, LogLevel, LogFormat } from '@tunnlo/core';
+import type { PipelineConfig, LogLevel, LogFormat, AgentEntry } from '@tunnlo/core';
 import { Pipeline, Logger, setGlobalLogger, getLogger } from '@tunnlo/core';
 import { MetricsCollector, DashboardServer } from '@tunnlo/dashboard';
 import { createAdapter, createFilter, createBridge, createActionHandler, createBus } from './factory.js';
@@ -37,18 +37,23 @@ export async function buildAndRun(config: PipelineConfig, options: RunOptions = 
     // Create filters
     const filters = config.filters.map(createFilter);
 
-    // Create bridge
-    const bridge = createBridge(config.agent);
+    // Create agents (config is always normalized to `agents` array by loadConfig)
+    const agentConfigs = config.agents ?? (config.agent ? [config.agent] : []);
+    const agents: AgentEntry[] = agentConfigs.map((agentCfg) => ({
+      id: agentCfg.id ?? 'default',
+      bridge: createBridge(agentCfg),
+      config: agentCfg,
+      sources: agentCfg.sources,
+    }));
 
-    // Create action handlers
-    const actionHandlers = (config.agent.actions ?? []).map(createActionHandler);
+    // Collect action handlers from all agents
+    const actionHandlers = agentConfigs.flatMap((a) => (a.actions ?? []).map(createActionHandler));
 
     const pipeline = new Pipeline({
       bus,
       adapters,
       filters,
-      bridge,
-      agentConfig: config.agent,
+      agents,
       actionHandlers,
       behavior: config.behavior,
       metrics,

@@ -23,6 +23,114 @@ async function choose(question: string, options: { label: string; value: string 
   return (index >= 0 && index < options.length) ? options[index].value : options[0].value;
 }
 
+// ── LLM choices ──────────────────────────────────────────────────────────────
+
+const LLM_OPTIONS = [
+  { label: 'Anthropic Claude (requires ANTHROPIC_API_KEY)', value: 'anthropic/claude-sonnet-4-5' },
+  { label: 'OpenAI GPT-4o (requires OPENAI_API_KEY)', value: 'openai/gpt-4o' },
+  { label: 'Ollama — local models, no API key needed', value: 'ollama/llama3.1:8b' },
+  { label: 'OpenClaw — WebSocket agent gateway', value: 'runtime:openclaw' },
+  { label: 'LangGraph — LangChain agent graphs', value: 'runtime:langgraph' },
+  { label: 'CrewAI — multi-agent framework', value: 'runtime:crewai' },
+];
+
+interface AgentDef {
+  id: string;
+  runtime: string;
+  model: string;
+  runtimeConfig: Record<string, string>;
+  sources?: string[];
+  system_prompt: string;
+}
+
+async function collectRuntimeConfig(runtime: string): Promise<Record<string, string>> {
+  const cfg: Record<string, string> = {};
+  if (runtime === 'openclaw') {
+    cfg.gateway_url = await ask('  OpenClaw gateway URL [ws://localhost:3000/ws]: ') || 'ws://localhost:3000/ws';
+    cfg.agent_id = await ask('  Agent ID [default]: ') || 'default';
+  } else if (runtime === 'langgraph') {
+    cfg.endpoint_url = await ask('  LangGraph endpoint URL [http://localhost:8123]: ') || 'http://localhost:8123';
+    cfg.graph_id = await ask('  Graph ID [agent]: ') || 'agent';
+  } else if (runtime === 'crewai') {
+    cfg.endpoint_url = await ask('  CrewAI endpoint URL [http://localhost:8000]: ') || 'http://localhost:8000';
+    cfg.crew_id = await ask('  Crew ID [default]: ') || 'default';
+  }
+  return cfg;
+}
+
+function parseLlmChoice(llmChoice: string): { model: string; runtime: string } {
+  if (llmChoice.startsWith('runtime:')) {
+    return { model: '', runtime: llmChoice.slice('runtime:'.length) };
+  }
+  return { model: llmChoice, runtime: 'direct-llm' };
+}
+
+function defaultPromptForSource(source: string): string {
+  const prompts: Record<string, string> = {
+    stdin: `You are a monitoring agent. Analyze incoming events and respond with
+    observations, potential issues, and recommended actions.`,
+    tshark: `You are a network security analyst monitoring live traffic.
+    Assess each packet: is this normal or suspicious? Should an alert be raised?`,
+    log: `You are a log analysis agent. Monitor incoming log lines and identify
+    errors, warnings, anomalies, or patterns worth flagging.`,
+    'mcp-bridge': `You are a monitoring agent connected to an MCP server.
+    Analyze incoming tool results and events, identify issues, and recommend actions.`,
+    kafka: `You are a real-time event processing agent consuming messages from Kafka.
+    Analyze each event for anomalies, errors, or patterns worth flagging.`,
+    'google-docs': `You are a document collaboration assistant monitoring Google Docs.
+    Summarize comments, evaluate suggestions, and flag significant edits.`,
+  };
+  return prompts[source] || prompts.stdin;
+}
+
+function generateAgentsYaml(agents: AgentDef[]): string {
+  if (agents.length === 1 && !agents[0].sources) {
+    const a = agents[0];
+    if (a.runtime === 'direct-llm') {
+      return `agent:
+  runtime: direct-llm
+  model: ${a.model}
+  system_prompt: |
+    ${a.system_prompt.split('\n').join('\n    ')}
+  token_budget:
+    max_per_hour: ${a.model.startsWith('ollama/') ? '50000' : '100000'}
+    max_per_event: 4000`;
+    }
+    // Non-direct-llm runtime
+    const runtimeYaml = Object.entries(a.runtimeConfig)
+      .map(([k, v]) => `  ${k}: ${v}`)
+      .join('\n');
+    return `agent:
+  runtime: ${a.runtime}
+${runtimeYaml}`;
+  }
+
+  return 'agents:\n' + agents.map((a) => {
+    const lines: string[] = [];
+    lines.push(`  - id: ${a.id}`);
+    if (a.runtime === 'direct-llm') {
+      lines.push(`    runtime: direct-llm`);
+      lines.push(`    model: ${a.model}`);
+    } else {
+      lines.push(`    runtime: ${a.runtime}`);
+      for (const [k, v] of Object.entries(a.runtimeConfig)) {
+        lines.push(`    ${k}: ${v}`);
+      }
+    }
+    if (a.sources && a.sources.length > 0) {
+      lines.push(`    sources: [${a.sources.join(', ')}]`);
+    }
+    lines.push(`    system_prompt: |`);
+    lines.push(`      ${a.system_prompt.split('\n').join('\n      ')}`);
+    if (a.runtime === 'direct-llm') {
+      lines.push(`    token_budget:`);
+      lines.push(`      max_per_hour: ${a.model.startsWith('ollama/') ? '50000' : '100000'}`);
+      lines.push(`      max_per_event: 4000`);
+    }
+    return lines.join('\n');
+  }).join('\n\n');
+}
+
 // ── Config generators ──────────────────────────────────────────────────────
 
 function stdinConfig(model: string): string {
@@ -325,7 +433,24 @@ dashboard:
 `;
 }
 
-function envExample(model: string, runtime?: string): string {
+function envExample(model: string, runtime?: string, allAgents?: AgentDef[]): string {
+  // Multi-agent: collect all needed keys
+  if (allAgents && allAgents.length > 1) {
+    const lines: string[] = [];
+    const needsAnthropic = allAgents.some((a) => a.model.startsWith('anthropic/'));
+    const needsOpenai = allAgents.some((a) => a.model.startsWith('openai/'));
+    const hasOllama = allAgents.some((a) => a.model.startsWith('ollama/'));
+    const hasFramework = allAgents.some((a) => a.runtime !== 'direct-llm');
+
+    if (needsAnthropic) lines.push('ANTHROPIC_API_KEY=');
+    if (needsOpenai) lines.push('OPENAI_API_KEY=');
+    if (hasOllama) lines.push('# Ollama runs locally — make sure ollama is running: ollama serve');
+    if (hasFramework) lines.push('# Agent framework runtimes handle their own LLM access.');
+    if (lines.length === 0) lines.push('# No API keys required.');
+    return lines.join('\n') + '\n';
+  }
+
+  // Single-agent
   if (runtime === 'openclaw' || runtime === 'langgraph' || runtime === 'crewai') {
     return '# No API key required — the agent framework handles LLM access.\n';
   }
@@ -454,34 +579,81 @@ async function main() {
 
   console.log('');
 
-  const llmChoice = await choose('Which LLM / agent runtime will you use?', [
-    { label: 'Anthropic Claude (requires ANTHROPIC_API_KEY)', value: 'anthropic/claude-sonnet-4-5' },
-    { label: 'OpenAI GPT-4o (requires OPENAI_API_KEY)', value: 'openai/gpt-4o' },
-    { label: 'Ollama — local models, no API key needed', value: 'ollama/llama3.1:8b' },
-    { label: 'OpenClaw — WebSocket agent gateway', value: 'runtime:openclaw' },
-    { label: 'LangGraph — LangChain agent graphs', value: 'runtime:langgraph' },
-    { label: 'CrewAI — multi-agent framework', value: 'runtime:crewai' },
-  ]);
+  const llmChoice = await choose('Which LLM / agent runtime will you use?', LLM_OPTIONS);
+  const { model: firstModel, runtime: firstRuntime } = parseLlmChoice(llmChoice);
+  const firstRuntimeConfig = await collectRuntimeConfig(firstRuntime);
 
-  let model = llmChoice;
-  let runtime = 'direct-llm';
-  let runtimeConfig: Record<string, string> = {};
+  const agents: AgentDef[] = [{
+    id: 'default',
+    runtime: firstRuntime,
+    model: firstModel,
+    runtimeConfig: firstRuntimeConfig,
+    system_prompt: defaultPromptForSource(source),
+  }];
 
-  if (llmChoice.startsWith('runtime:')) {
-    runtime = llmChoice.slice('runtime:'.length);
-    model = '';
+  // Collect source IDs for routing reference
+  const sourceIds: string[] = [];
+  if (source === 'stdin') sourceIds.push('stdin-input');
+  else if (source === 'tshark') sourceIds.push('network-traffic');
+  else if (source === 'log') sourceIds.push('log-file');
+  else if (source === 'mcp-bridge') sourceIds.push('mcp-source');
+  else if (source === 'kafka') sourceIds.push('kafka-source');
+  else if (source === 'google-docs') sourceIds.push('google-docs');
 
-    if (runtime === 'openclaw') {
-      runtimeConfig.gateway_url = await ask('  OpenClaw gateway URL [ws://localhost:3000/ws]: ') || 'ws://localhost:3000/ws';
-      runtimeConfig.agent_id = await ask('  Agent ID [default]: ') || 'default';
-    } else if (runtime === 'langgraph') {
-      runtimeConfig.endpoint_url = await ask('  LangGraph endpoint URL [http://localhost:8123]: ') || 'http://localhost:8123';
-      runtimeConfig.graph_id = await ask('  Graph ID [agent]: ') || 'agent';
-    } else if (runtime === 'crewai') {
-      runtimeConfig.endpoint_url = await ask('  CrewAI endpoint URL [http://localhost:8000]: ') || 'http://localhost:8000';
-      runtimeConfig.crew_id = await ask('  Crew ID [default]: ') || 'default';
+  console.log('');
+  const wantMulti = await ask('Would you like to add more agents? (e.g., compare LLMs or route sources to different agents) [y/N]: ');
+
+  if (wantMulti.toLowerCase() === 'y' || wantMulti.toLowerCase() === 'yes') {
+    // Rename first agent
+    const firstName = await ask(`  Name for agent 1 [${agents[0].id}]: `) || agents[0].id;
+    agents[0].id = firstName;
+
+    // Ask about source routing for agent 1
+    if (sourceIds.length > 0) {
+      console.log(`  Available sources: ${sourceIds.join(', ')}`);
+      const firstSources = await ask(`  Route agent "${firstName}" to specific sources? (comma-separated, or blank for all): `);
+      if (firstSources.trim()) {
+        agents[0].sources = firstSources.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    }
+
+    let addMore = true;
+    let agentNum = 2;
+    while (addMore) {
+      console.log(`\n  Agent ${agentNum}:`);
+      const nextLlm = await choose('  Which LLM / agent runtime?', LLM_OPTIONS);
+      const { model: nextModel, runtime: nextRuntime } = parseLlmChoice(nextLlm);
+      const nextRuntimeConfig = await collectRuntimeConfig(nextRuntime);
+
+      const nextId = await ask(`  Agent name [agent-${agentNum}]: `) || `agent-${agentNum}`;
+
+      let nextSources: string[] | undefined;
+      if (sourceIds.length > 0) {
+        console.log(`  Available sources: ${sourceIds.join(', ')}`);
+        const srcInput = await ask(`  Route agent "${nextId}" to specific sources? (comma-separated, or blank for all): `);
+        if (srcInput.trim()) {
+          nextSources = srcInput.split(',').map((s) => s.trim()).filter(Boolean);
+        }
+      }
+
+      agents.push({
+        id: nextId,
+        runtime: nextRuntime,
+        model: nextModel,
+        runtimeConfig: nextRuntimeConfig,
+        sources: nextSources,
+        system_prompt: defaultPromptForSource(source),
+      });
+
+      agentNum++;
+      const more = await ask('\n  Add another agent? [y/N]: ');
+      addMore = more.toLowerCase() === 'y' || more.toLowerCase() === 'yes';
     }
   }
+
+  // Determine primary model for env example
+  const model = firstModel;
+  const runtime = firstRuntime;
 
   rl.close();
 
@@ -502,12 +674,13 @@ async function main() {
     tunnloYaml = stdinConfig(model);
   }
 
-  // If using an agent runtime, replace the agent section
-  if (runtime !== 'direct-llm') {
-    const runtimeYaml = Object.entries(runtimeConfig)
-      .map(([k, v]) => `  ${k}: ${v}`)
-      .join('\n');
-    tunnloYaml = tunnloYaml.replace(/agent:\n  runtime: direct-llm\n  model: [^\n]*\n  system_prompt:[\s\S]*?(?=\nbehavior:)/, `agent:\n  runtime: ${runtime}\n${runtimeYaml}\n`);
+  // Replace the agent section with generated single/multi-agent YAML
+  const agentsYaml = generateAgentsYaml(agents);
+  tunnloYaml = tunnloYaml.replace(/agent:\n  runtime: direct-llm\n  model: [^\n]*\n  system_prompt:[\s\S]*?(?=\nbehavior:)/, agentsYaml + '\n');
+
+  // Enable dashboard for multi-agent setups (per-agent response panels)
+  if (agents.length > 1 && !tunnloYaml.includes('dashboard:')) {
+    tunnloYaml += '\ndashboard:\n  enabled: true\n';
   }
 
   // ── Scaffold files ──
@@ -545,7 +718,7 @@ async function main() {
   await writeFile(join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2));
   await writeFile(join(projectDir, 'tunnlo.yaml'), tunnloYaml);
   await writeFile(join(projectDir, '.gitignore'), 'node_modules/\n.env\n.env.*\n');
-  await writeFile(join(projectDir, '.env.example'), envExample(model, runtime));
+  await writeFile(join(projectDir, '.env.example'), envExample(model, runtime, agents));
 
   console.log(startInstructions(source, projectName, model));
 }

@@ -42,7 +42,8 @@ program
         console.log('[tunnlo] Config is valid.');
         console.log(`  Sources: ${config.sources.map((s) => s.id).join(', ')}`);
         console.log(`  Filters: ${config.filters.length > 0 ? config.filters.map((f) => f.type).join(', ') : '(none)'}`);
-        console.log(`  Agent: ${config.agent.runtime} / ${config.agent.model}`);
+        const agentsList = config.agents ?? [];
+        console.log(`  Agents: ${agentsList.map((a) => `${a.id ?? 'default'} (${a.model})`).join(', ')}`);
         return;
       }
 
@@ -132,7 +133,8 @@ program
       log.always('  │                                             │');
       log.always(`  │  Sources:  ${config.sources.map((s) => s.id).join(', ').slice(0, 33).padEnd(33)}│`);
       log.always(`  │  Filters:  ${(config.filters.length > 0 ? config.filters.map((f) => f.type).join(', ') : '(none)').slice(0, 33).padEnd(33)}│`);
-      log.always(`  │  Model:    ${config.agent.model.slice(0, 33).padEnd(33)}│`);
+      const agentsSummary = (config.agents ?? []).map((a) => a.id ?? 'default').join(', ');
+      log.always(`  │  Agents:  ${agentsSummary.slice(0, 34).padEnd(34)}│`);
       if (dashEnabled) {
         log.always(`  │  Dashboard: http://localhost:${String(dashPort).padEnd(22)}│`);
       }
@@ -168,8 +170,11 @@ program
       console.log('[tunnlo] Config is valid.');
       console.log(`  Sources: ${config.sources.length}`);
       console.log(`  Filters: ${config.filters.length}`);
-      console.log(`  Runtime: ${config.agent.runtime}`);
-      console.log(`  Model: ${config.agent.model}`);
+      const agents = config.agents ?? [];
+      console.log(`  Agents: ${agents.length}`);
+      for (const a of agents) {
+        console.log(`    - ${a.id ?? 'default'}: ${a.runtime} / ${a.model}${a.sources ? ` (sources: ${a.sources.join(', ')})` : ' (all sources)'}`);
+      }
     } catch (err) {
       console.error('[tunnlo] Invalid config:', (err as Error).message);
       process.exit(1);

@@ -27,6 +27,7 @@ export interface MetricsPort {
   recordLlmResponse?(entry: {
     event_id: string;
     source_id: string;
+    agent_id: string;
     content: string;
     tokens_used: number;
     latency_ms: number;
@@ -34,12 +35,24 @@ export interface MetricsPort {
   }): void;
 }
 
+export interface AgentEntry {
+  id: string;
+  bridge: AgentBridge;
+  config: AgentConfig;
+  /** When set, only events from these source IDs are routed to this agent. */
+  sources?: string[];
+}
+
 export interface PipelineOptions {
   bus: MessageBus;
   adapters: Map<string, Adapter>;
   filters: Filter[];
-  bridge: AgentBridge;
-  agentConfig: AgentConfig;
+  /** @deprecated Use `agents` instead. Kept for backward compatibility. */
+  bridge?: AgentBridge;
+  /** @deprecated Use `agents` instead. Kept for backward compatibility. */
+  agentConfig?: AgentConfig;
+  /** Multiple agents with optional source-based routing. */
+  agents?: AgentEntry[];
   actionHandlers: ActionHandler[];
   behavior?: BehaviorConfig;
   metrics?: MetricsPort;
@@ -49,13 +62,12 @@ export class Pipeline {
   private bus: MessageBus;
   private adapters: Map<string, Adapter>;
   private filters: Filter[];
-  private bridge: AgentBridge;
-  private agentConfig: AgentConfig;
+  private agents: AgentEntry[];
   private actionHandlers: Map<string, ActionHandler>;
   private behavior: BehaviorConfig;
   private running = false;
   private abortController: AbortController | null = null;
-  private tokensUsedThisHour = 0;
+  private tokensPerAgent = new Map<string, number>();
   private hourStart = Date.now();
   private metrics?: MetricsPort;
 
@@ -63,8 +75,21 @@ export class Pipeline {
     this.bus = options.bus;
     this.adapters = options.adapters;
     this.filters = options.filters;
-    this.bridge = options.bridge;
-    this.agentConfig = options.agentConfig;
+
+    // Normalize: support both legacy single-bridge and new multi-agent
+    if (options.agents && options.agents.length > 0) {
+      this.agents = options.agents;
+    } else if (options.bridge && options.agentConfig) {
+      this.agents = [{
+        id: options.agentConfig.id ?? 'default',
+        bridge: options.bridge,
+        config: options.agentConfig,
+        sources: options.agentConfig.sources,
+      }];
+    } else {
+      throw new Error('Pipeline requires either `agents` or `bridge` + `agentConfig`');
+    }
+
     this.actionHandlers = new Map(
       options.actionHandlers.map((h) => [h.type, h]),
     );
@@ -133,10 +158,12 @@ export class Pipeline {
       }
     }
 
-    try {
-      await this.bridge.close();
-    } catch (err) {
-      getLogger().error('[tunnlo:pipeline] bridge close error:', err);
+    for (const agent of this.agents) {
+      try {
+        await agent.bridge.close();
+      } catch (err) {
+        getLogger().error(`[tunnlo:pipeline] bridge "${agent.id}" close error:`, err);
+      }
     }
     try {
       await this.bus.close();
@@ -189,7 +216,7 @@ export class Pipeline {
   private resetHourlyBudgetIfNeeded(): void {
     const now = Date.now();
     if (now - this.hourStart >= 3_600_000) {
-      this.tokensUsedThisHour = 0;
+      this.tokensPerAgent.clear();
       this.hourStart = now;
     }
   }
@@ -197,9 +224,29 @@ export class Pipeline {
   private async sendToAgent(event: TunnloEvent): Promise<void> {
     this.resetHourlyBudgetIfNeeded();
 
-    const budget = this.agentConfig.token_budget;
-    if (budget && this.tokensUsedThisHour >= budget.max_per_hour) {
-      getLogger().warn('[tunnlo:pipeline] hourly token budget exceeded, dropping event');
+    // Find agents that should receive this event
+    const targets = this.agents.filter((agent) => {
+      if (!agent.sources || agent.sources.length === 0) return true; // fan-out
+      return agent.sources.includes(event.source_id); // routed
+    });
+
+    if (targets.length === 0) {
+      getLogger().debug(`[tunnlo] Event ${event.event_id} (${event.source_id}) has no matching agents, dropping`);
+      this.metrics?.recordEventDropped();
+      return;
+    }
+
+    // Send to all matching agents in parallel
+    await Promise.allSettled(
+      targets.map((agent) => this.sendToSingleAgent(agent, event)),
+    );
+  }
+
+  private async sendToSingleAgent(agent: AgentEntry, event: TunnloEvent): Promise<void> {
+    const budget = agent.config.token_budget;
+    const agentTokens = this.tokensPerAgent.get(agent.id) ?? 0;
+    if (budget && agentTokens >= budget.max_per_hour) {
+      getLogger().warn(`[tunnlo:pipeline] agent "${agent.id}" hourly token budget exceeded, dropping event`);
       this.metrics?.recordEventDropped();
       return;
     }
@@ -207,27 +254,28 @@ export class Pipeline {
     const startTime = Date.now();
     this.metrics?.updateEventStatus?.(event.event_id, 'processing');
     this.metrics?.recordLlmRequestStart?.();
-    getLogger().info(`[tunnlo] Event ${event.event_id} (${event.source_id}) -> sending to LLM...`);
+    getLogger().info(`[tunnlo] Event ${event.event_id} (${event.source_id}) -> sending to agent "${agent.id}"...`);
 
     try {
-      const response = await this.bridge.send(event, this.agentConfig.system_prompt);
+      const response = await agent.bridge.send(event, agent.config.system_prompt);
       const latencyMs = Date.now() - startTime;
       this.metrics?.recordLlmRequestEnd?.();
 
-      this.tokensUsedThisHour += response.tokens_used;
+      this.tokensPerAgent.set(agent.id, agentTokens + response.tokens_used);
       this.metrics?.recordEventSentToLlm(event.event_id, latencyMs);
       this.metrics?.updateEventStatus?.(event.event_id, 'sent');
       this.metrics?.recordTokensUsed(response.tokens_used);
       this.metrics?.recordLlmResponse?.({
         event_id: event.event_id,
         source_id: event.source_id,
+        agent_id: agent.id,
         content: response.content,
         tokens_used: response.tokens_used,
         latency_ms: latencyMs,
         has_actions: Array.isArray(response.actions) && response.actions.length > 0,
       });
 
-      getLogger().info(`[tunnlo] Event ${event.event_id} (${event.source_id}) <- LLM responded [${latencyMs}ms, ${response.tokens_used} tokens]`);
+      getLogger().info(`[tunnlo] Event ${event.event_id} (${event.source_id}) <- agent "${agent.id}" responded [${latencyMs}ms, ${response.tokens_used} tokens]`);
       getLogger().info(`[tunnlo] Response:\n${response.content}\n`);
 
       if (response.actions) {
@@ -248,12 +296,12 @@ export class Pipeline {
     } catch (err) {
       this.metrics?.recordLlmRequestEnd?.();
       this.metrics?.updateEventStatus?.(event.event_id, 'dropped');
-      getLogger().error('[tunnlo:pipeline] LLM bridge error:', err);
-      this.metrics?.recordError('bridge', `LLM error: ${err}`);
+      getLogger().error(`[tunnlo:pipeline] agent "${agent.id}" bridge error:`, err);
+      this.metrics?.recordError('bridge', `agent "${agent.id}" LLM error: ${err}`);
       if (this.behavior.on_llm_unreachable === 'drop_and_alert') {
         this.metrics?.recordEventDropped();
         const alertEvent = createEvent('tunnlo:pipeline', 'ERROR', {
-          message: 'LLM bridge unreachable',
+          message: `LLM bridge unreachable for agent "${agent.id}"`,
           error: String(err),
           dropped_event_id: event.event_id,
         });

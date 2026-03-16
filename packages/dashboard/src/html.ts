@@ -306,11 +306,63 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       .error-list, .response-list { padding: 12px; }
     }
 
+    /* Agent tabs */
+    .agent-tabs {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 0 20px;
+      border-bottom: 1px solid #21262d;
+      background: #0d1117;
+      overflow-x: auto;
+    }
+    .agent-tab {
+      padding: 10px 18px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #8b949e;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .agent-tab:hover { color: #c9d1d9; }
+    .agent-tab.active {
+      color: #58a6ff;
+      border-bottom-color: #58a6ff;
+    }
+    .agent-tab .tab-count {
+      font-size: 10px;
+      color: #484f58;
+      background: #21262d;
+      padding: 1px 6px;
+      border-radius: 8px;
+      margin-left: 6px;
+    }
+    .agent-tab.active .tab-count {
+      background: #1f6feb30;
+      color: #58a6ff;
+    }
+
+    /* Agent panels */
+    .agent-panels { position: relative; }
+    .agent-panel { display: none; }
+    .agent-panel.active { display: block; }
+
+    /* Agent color coding */
+    .agent-color-0 { --agent-color: #58a6ff; }
+    .agent-color-1 { --agent-color: #a371f7; }
+    .agent-color-2 { --agent-color: #3fb950; }
+    .agent-color-3 { --agent-color: #d29922; }
+    .agent-color-4 { --agent-color: #f778ba; }
+    .agent-color-5 { --agent-color: #79c0ff; }
+
     /* LLM Responses */
     .response-list { padding: 16px 20px; max-height: 480px; overflow-y: auto; }
     .response-item {
       padding: 14px 16px;
-      border-left: 3px solid #58a6ff;
+      border-left: 3px solid var(--agent-color, #58a6ff);
       margin-bottom: 10px;
       background: #58a6ff08;
       border-radius: 0 8px 8px 0;
@@ -324,6 +376,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       color: #484f58;
     }
     .response-meta .resp-source { color: #58a6ff; font-weight: 600; }
+    .response-meta .resp-agent { color: var(--agent-color, #58a6ff); font-weight: 600; }
     .response-meta .resp-tokens { color: #d29922; }
     .response-meta .resp-latency { color: #3fb950; }
     .response-meta .resp-actions {
@@ -344,6 +397,29 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       max-height: 120px;
       overflow-y: auto;
     }
+
+    /* Side-by-side comparison */
+    .agent-compare {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 0;
+    }
+    .agent-compare .agent-column {
+      border-right: 1px solid #21262d;
+    }
+    .agent-compare .agent-column:last-child { border-right: none; }
+    .agent-column-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: #0d1117;
+      border-bottom: 1px solid #21262d;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .agent-column-header .agent-name { color: var(--agent-color, #58a6ff); }
+    .agent-column-header .agent-stats { color: #484f58; font-weight: 400; font-size: 11px; }
   </style>
 </head>
 <body>
@@ -407,14 +483,25 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       </table></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="responses-section">
       <div class="section-header">
-        <h2>LLM Responses</h2>
-        <span class="count" id="response-count">0</span>
+        <h2>Agent Responses</h2>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="count" id="response-count">0</span>
+          <button id="compare-toggle" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer;display:none" title="Toggle side-by-side comparison">Compare</button>
+        </div>
       </div>
-      <div class="response-list" id="responses">
-        <div class="empty-msg">No responses yet</div>
+      <div class="agent-tabs" id="agent-tabs">
+        <div class="agent-tab active" data-agent="all">All</div>
       </div>
+      <div class="agent-panels" id="agent-panels">
+        <div class="agent-panel active" data-agent="all" id="panel-all">
+          <div class="response-list">
+            <div class="empty-msg">No responses yet</div>
+          </div>
+        </div>
+      </div>
+      <div class="agent-compare" id="agent-compare" style="display:none"></div>
     </div>
 
     <div class="section">
@@ -457,7 +544,188 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
       return pct + '%<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>';
     }
 
+    const AGENT_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f778ba', '#79c0ff'];
     let lastRespCount = 0;
+    let knownAgents = [];
+    let activeTab = 'all';
+    let compareMode = false;
+
+    function getAgentColor(agentId) {
+      const idx = knownAgents.indexOf(agentId);
+      return AGENT_COLORS[idx % AGENT_COLORS.length];
+    }
+
+    function renderResponseItem(r, colorClass) {
+      return '<div class="response-item ' + colorClass + '" style="border-left-color:' + getAgentColor(r.agent_id || 'default') + '">' +
+        '<div class="response-meta">' +
+        '<span class="resp-source">' + esc(r.source_id) + '</span>' +
+        (r.agent_id ? '<span class="resp-agent" style="color:' + getAgentColor(r.agent_id) + '">' + esc(r.agent_id) + '</span>' : '') +
+        '<span>' + esc(new Date(r.timestamp).toLocaleTimeString()) + '</span>' +
+        '<span class="resp-tokens">' + r.tokens_used + ' tokens</span>' +
+        '<span class="resp-latency">' + r.latency_ms + 'ms</span>' +
+        (r.has_actions ? '<span class="resp-actions">ACTIONS</span>' : '') +
+        '</div><div class="response-content">' + esc(r.content) + '</div></div>';
+    }
+
+    function ensureAgentTab(agentId) {
+      if (knownAgents.includes(agentId)) return;
+      knownAgents.push(agentId);
+      const colorIdx = knownAgents.length - 1;
+
+      // Add tab
+      const tabsDiv = document.getElementById('agent-tabs');
+      const tab = document.createElement('div');
+      tab.className = 'agent-tab';
+      tab.dataset.agent = agentId;
+      tab.innerHTML = esc(agentId) + '<span class="tab-count" id="tab-count-' + agentId + '">0</span>';
+      tab.onclick = function() { switchTab(agentId); };
+      tabsDiv.appendChild(tab);
+
+      // Add panel
+      const panelsDiv = document.getElementById('agent-panels');
+      const panel = document.createElement('div');
+      panel.className = 'agent-panel';
+      panel.dataset.agent = agentId;
+      panel.id = 'panel-' + agentId;
+      panel.innerHTML = '<div class="response-list"><div class="empty-msg">No responses yet</div></div>';
+      panelsDiv.appendChild(panel);
+
+      // Show compare button when 2+ agents
+      if (knownAgents.length >= 2) {
+        document.getElementById('compare-toggle').style.display = '';
+      }
+    }
+
+    function switchTab(agentId) {
+      activeTab = agentId;
+      document.querySelectorAll('.agent-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.agent === agentId);
+      });
+      document.querySelectorAll('.agent-panel').forEach(p => {
+        p.classList.toggle('active', p.dataset.agent === agentId);
+      });
+    }
+
+    function updateResponses(resps) {
+      document.getElementById('response-count').textContent = resps.length;
+
+      if (resps.length === 0) {
+        lastRespCount = 0;
+        const allList = document.querySelector('#panel-all .response-list');
+        if (allList) allList.innerHTML = '<div class="empty-msg">No responses yet</div>';
+        return;
+      }
+
+      // Discover new agents
+      resps.forEach(r => { if (r.agent_id) ensureAgentTab(r.agent_id); });
+
+      if (resps.length <= lastRespCount) return;
+
+      const newResps = resps.slice(lastRespCount);
+
+      // Update "All" panel
+      const allList = document.querySelector('#panel-all .response-list');
+      if (lastRespCount === 0) allList.innerHTML = '';
+      const allFrag = document.createDocumentFragment();
+      newResps.slice().reverse().forEach(r => {
+        const item = document.createElement('div');
+        item.innerHTML = renderResponseItem(r, '');
+        allFrag.appendChild(item.firstChild);
+      });
+      allList.insertBefore(allFrag, allList.firstChild);
+
+      // Update per-agent panels
+      const byAgent = {};
+      newResps.forEach(r => {
+        const aid = r.agent_id || 'default';
+        if (!byAgent[aid]) byAgent[aid] = [];
+        byAgent[aid].push(r);
+      });
+
+      for (const [aid, items] of Object.entries(byAgent)) {
+        const panel = document.getElementById('panel-' + aid);
+        if (!panel) continue;
+        const list = panel.querySelector('.response-list');
+        if (list.querySelector('.empty-msg')) list.innerHTML = '';
+        const frag = document.createDocumentFragment();
+        items.slice().reverse().forEach(r => {
+          const item = document.createElement('div');
+          item.innerHTML = renderResponseItem(r, '');
+          frag.appendChild(item.firstChild);
+        });
+        list.insertBefore(frag, list.firstChild);
+      }
+
+      // Update tab counts
+      const allCounts = {};
+      resps.forEach(r => {
+        const aid = r.agent_id || 'default';
+        allCounts[aid] = (allCounts[aid] || 0) + 1;
+      });
+      for (const [aid, count] of Object.entries(allCounts)) {
+        const el = document.getElementById('tab-count-' + aid);
+        if (el) el.textContent = count;
+      }
+
+      // Update compare view if active
+      if (compareMode) renderCompareView(resps);
+
+      lastRespCount = resps.length;
+    }
+
+    function renderCompareView(resps) {
+      const compareDiv = document.getElementById('agent-compare');
+      const byAgent = {};
+      resps.forEach(r => {
+        const aid = r.agent_id || 'default';
+        if (!byAgent[aid]) byAgent[aid] = [];
+        byAgent[aid].push(r);
+      });
+
+      compareDiv.innerHTML = knownAgents.map((aid, idx) => {
+        const items = byAgent[aid] || [];
+        const colorClass = 'agent-color-' + (idx % 6);
+        return '<div class="agent-column ' + colorClass + '">' +
+          '<div class="agent-column-header">' +
+            '<span class="agent-name" style="color:' + AGENT_COLORS[idx % AGENT_COLORS.length] + '">' + esc(aid) + '</span>' +
+            '<span class="agent-stats">' + items.length + ' responses</span>' +
+          '</div>' +
+          '<div class="response-list">' +
+            (items.length === 0 ? '<div class="empty-msg">No responses</div>' :
+              items.slice().reverse().map(r => renderResponseItem(r, '')).join('')) +
+          '</div></div>';
+      }).join('');
+    }
+
+    // Compare toggle
+    document.getElementById('compare-toggle').onclick = function() {
+      compareMode = !compareMode;
+      const btn = document.getElementById('compare-toggle');
+      const panels = document.getElementById('agent-panels');
+      const tabs = document.getElementById('agent-tabs');
+      const compare = document.getElementById('agent-compare');
+
+      if (compareMode) {
+        btn.style.background = '#1f6feb30';
+        btn.style.color = '#58a6ff';
+        btn.style.borderColor = '#1f6feb';
+        panels.style.display = 'none';
+        tabs.style.display = 'none';
+        compare.style.display = '';
+        lastRespCount = 0; // force full re-render
+      } else {
+        btn.style.background = '#21262d';
+        btn.style.color = '#8b949e';
+        btn.style.borderColor = '#30363d';
+        panels.style.display = '';
+        tabs.style.display = '';
+        compare.style.display = 'none';
+        lastRespCount = 0;
+      }
+    };
+
+    // Tab click for "All"
+    document.querySelector('.agent-tab[data-agent="all"]').onclick = function() { switchTab('all'); };
 
     async function refresh() {
       try {
@@ -514,34 +782,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
             '</td><td><span class="badge ' + esc(e.status) + '">' + esc(e.status) + '</span></td></tr>'
           ).join('');
 
-        const resps = m.llm_responses || [];
-        document.getElementById('response-count').textContent = resps.length;
-        const respDiv = document.getElementById('responses');
-        if (resps.length === 0) {
-          respDiv.innerHTML = '<div class="empty-msg">No responses yet</div>';
-          lastRespCount = 0;
-        } else if (resps.length > lastRespCount) {
-          if (lastRespCount === 0) {
-            respDiv.innerHTML = '';
-          }
-          const newResps = resps.slice(lastRespCount);
-          const fragment = document.createDocumentFragment();
-          newResps.reverse().forEach(r => {
-            const item = document.createElement('div');
-            item.className = 'response-item';
-            item.innerHTML =
-              '<div class="response-meta">' +
-              '<span class="resp-source">' + esc(r.source_id) + '</span>' +
-              '<span>' + esc(new Date(r.timestamp).toLocaleTimeString()) + '</span>' +
-              '<span class="resp-tokens">' + r.tokens_used + ' tokens</span>' +
-              '<span class="resp-latency">' + r.latency_ms + 'ms</span>' +
-              (r.has_actions ? '<span class="resp-actions">ACTIONS</span>' : '') +
-              '</div><div class="response-content">' + esc(r.content) + '</div>';
-            fragment.appendChild(item);
-          });
-          respDiv.insertBefore(fragment, respDiv.firstChild);
-          lastRespCount = resps.length;
-        }
+        updateResponses(m.llm_responses || []);
 
         document.getElementById('error-count').textContent = m.errors.length;
         const errDiv = document.getElementById('errors');

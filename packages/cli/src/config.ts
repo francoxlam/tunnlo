@@ -18,6 +18,21 @@ export function interpolateEnv(text: string): string {
   });
 }
 
+function validateAgentConfig(agent: any, label: string): void {
+  if (!agent?.runtime) {
+    throw new Error(`Config ${label} must include runtime`);
+  }
+  if (!agent?.model) {
+    throw new Error(`Config ${label} must include model`);
+  }
+  if (!agent?.system_prompt) {
+    throw new Error(`Config ${label} must include system_prompt`);
+  }
+  if (agent.sources !== undefined && !Array.isArray(agent.sources)) {
+    throw new Error(`Config ${label}.sources must be an array of source IDs`);
+  }
+}
+
 export async function loadConfig(configPath: string): Promise<PipelineConfig> {
   const raw = await readFile(configPath, 'utf-8');
   const interpolated = interpolateEnv(raw);
@@ -27,16 +42,34 @@ export async function loadConfig(configPath: string): Promise<PipelineConfig> {
     throw new Error('Config must include at least one source');
   }
 
-  if (!parsed.agent?.runtime) {
-    throw new Error('Config must include agent.runtime');
+  if (parsed.agent && parsed.agents) {
+    throw new Error('Config must use either `agent` (single) or `agents` (multiple), not both');
   }
 
-  if (!parsed.agent?.model) {
-    throw new Error('Config must include agent.model');
+  if (!parsed.agent && !parsed.agents) {
+    throw new Error('Config must include `agent` or `agents`');
   }
 
-  if (!parsed.agent?.system_prompt) {
-    throw new Error('Config must include agent.system_prompt');
+  // Normalize singular `agent` into `agents` array
+  if (parsed.agent) {
+    validateAgentConfig(parsed.agent, 'agent');
+    if (!parsed.agent.id) parsed.agent.id = 'default';
+    parsed.agents = [parsed.agent];
+    delete parsed.agent;
+  } else {
+    if (!Array.isArray(parsed.agents) || parsed.agents.length === 0) {
+      throw new Error('Config `agents` must be a non-empty array');
+    }
+    const ids = new Set<string>();
+    for (let i = 0; i < parsed.agents.length; i++) {
+      const a = parsed.agents[i];
+      validateAgentConfig(a, `agents[${i}]`);
+      if (!a.id) a.id = `agent-${i}`;
+      if (ids.has(a.id)) {
+        throw new Error(`Duplicate agent id: "${a.id}"`);
+      }
+      ids.add(a.id);
+    }
   }
 
   if (parsed.filters !== undefined && !Array.isArray(parsed.filters)) {

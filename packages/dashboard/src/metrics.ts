@@ -52,6 +52,7 @@ export interface LlmResponseEntry {
   timestamp: string;
   event_id: string;
   source_id: string;
+  agent_id: string;
   content: string;
   tokens_used: number;
   latency_ms: number;
