@@ -7,6 +7,7 @@ import type {
   TunnloEvent,
   ActionHandler,
   BehaviorConfig,
+  StreamChunk,
 } from './types.js';
 import type { MessageBus } from './bus.js';
 import { createEvent } from './event.js';
@@ -43,6 +44,8 @@ export interface AgentEntry {
   sources?: string[];
 }
 
+export type StreamChunkHandler = (agentId: string, event: TunnloEvent, chunk: StreamChunk) => void;
+
 export interface PipelineOptions {
   bus: MessageBus;
   adapters: Map<string, Adapter>;
@@ -56,6 +59,8 @@ export interface PipelineOptions {
   actionHandlers: ActionHandler[];
   behavior?: BehaviorConfig;
   metrics?: MetricsPort;
+  /** Called for each streaming chunk from LLM bridges that support streaming. */
+  onStreamChunk?: StreamChunkHandler;
 }
 
 export class Pipeline {
@@ -70,6 +75,7 @@ export class Pipeline {
   private tokensPerAgent = new Map<string, number>();
   private hourStart = Date.now();
   private metrics?: MetricsPort;
+  private onStreamChunk?: StreamChunkHandler;
 
   constructor(options: PipelineOptions) {
     this.bus = options.bus;
@@ -95,6 +101,7 @@ export class Pipeline {
     );
     this.behavior = options.behavior ?? { on_llm_unreachable: 'drop_and_alert' };
     this.metrics = options.metrics;
+    this.onStreamChunk = options.onStreamChunk;
   }
 
   async start(): Promise<void> {
@@ -123,6 +130,7 @@ export class Pipeline {
 
     const adapterPromises: Promise<void>[] = [];
     for (const [id, adapter] of this.adapters) {
+      this.metrics?.updateAdapterStatus(id, adapter.health().status);
       adapterPromises.push(this.runAdapter(id, adapter));
     }
 
@@ -257,7 +265,14 @@ export class Pipeline {
     getLogger().info(`[tunnlo] Event ${event.event_id} (${event.source_id}) -> sending to agent "${agent.id}"...`);
 
     try {
-      const response = await agent.bridge.send(event, agent.config.system_prompt);
+      let response: import('./types.js').AgentResponse;
+
+      if (agent.bridge.stream && this.onStreamChunk) {
+        response = await this.consumeStream(agent, event);
+      } else {
+        response = await agent.bridge.send(event, agent.config.system_prompt);
+      }
+
       const latencyMs = Date.now() - startTime;
       this.metrics?.recordLlmRequestEnd?.();
 
@@ -276,7 +291,9 @@ export class Pipeline {
       });
 
       getLogger().info(`[tunnlo] Event ${event.event_id} (${event.source_id}) <- agent "${agent.id}" responded [${latencyMs}ms, ${response.tokens_used} tokens]`);
-      getLogger().info(`[tunnlo] Response:\n${response.content}\n`);
+      if (!this.onStreamChunk) {
+        getLogger().info(`[tunnlo] Response:\n${response.content}\n`);
+      }
 
       if (response.actions) {
         for (const actionReq of response.actions) {
@@ -317,6 +334,37 @@ export class Pipeline {
           }
         }
       }
+    }
+  }
+
+  private async consumeStream(agent: AgentEntry, event: TunnloEvent): Promise<import('./types.js').AgentResponse> {
+    let content = '';
+    let tokensUsed = 0;
+
+    for await (const chunk of agent.bridge.stream!(event, agent.config.system_prompt)) {
+      this.onStreamChunk!(agent.id, event, chunk);
+
+      if (chunk.type === 'text' && chunk.text) {
+        content += chunk.text;
+      } else if (chunk.type === 'usage' && chunk.tokens_used !== undefined) {
+        tokensUsed = chunk.tokens_used;
+      }
+    }
+
+    return {
+      content,
+      tokens_used: tokensUsed,
+      actions: this.parseActionsFromContent(content),
+    };
+  }
+
+  private parseActionsFromContent(content: string): import('./types.js').ActionRequest[] | undefined {
+    const actionMatch = content.match(/```json:actions\s*\r?\n([\s\S]*?)```/);
+    if (!actionMatch) return undefined;
+    try {
+      return JSON.parse(actionMatch[1]);
+    } catch {
+      return undefined;
     }
   }
 }

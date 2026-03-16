@@ -1,4 +1,4 @@
-import type { AgentBridge, AgentResponse, TunnloEvent } from '@tunnlo/core';
+import type { AgentBridge, AgentResponse, StreamChunk, TunnloEvent } from '@tunnlo/core';
 
 export interface LLMBridgeConfig {
   model: string;
@@ -16,6 +16,14 @@ export abstract class BaseLLMBridge implements AgentBridge {
   }
 
   abstract send(event: TunnloEvent, systemPrompt: string): Promise<AgentResponse>;
+
+  async *stream(event: TunnloEvent, systemPrompt: string): AsyncIterable<StreamChunk> {
+    // Default: fall back to non-streaming send()
+    const response = await this.send(event, systemPrompt);
+    yield { type: 'text', text: response.content };
+    yield { type: 'usage', tokens_used: response.tokens_used };
+    yield { type: 'done' };
+  }
 
   async close(): Promise<void> {}
 
@@ -41,6 +49,41 @@ export abstract class BaseLLMBridge implements AgentBridge {
       return JSON.parse(actionMatch[1]);
     } catch {
       return undefined;
+    }
+  }
+
+  protected async *parseSSEStream(response: Response): AsyncGenerator<string> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop()!; // keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data && data !== '[DONE]') {
+              yield data;
+            }
+          }
+        }
+      }
+      // Process any remaining buffer
+      if (buffer.startsWith('data: ')) {
+        const data = buffer.slice(6).trim();
+        if (data && data !== '[DONE]') {
+          yield data;
+        }
+      }
+    } finally {
+      reader.releaseLock();
     }
   }
 }

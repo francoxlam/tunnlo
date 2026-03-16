@@ -9,11 +9,11 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "npm run build",
-    "clean": "rm -rf packages/*/dist"
+    "clean": "tsc -b --clean && rm -rf packages/*/dist"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -55,8 +55,15 @@ export interface Filter {
   flush?(): TunnloEvent | null;
 }
 
+export interface StreamChunk {
+  type: 'text' | 'usage' | 'done';
+  text?: string;
+  tokens_used?: number;
+}
+
 export interface AgentBridge {
   send(event: TunnloEvent, systemPrompt: string): Promise<AgentResponse>;
+  stream?(event: TunnloEvent, systemPrompt: string): AsyncIterable<StreamChunk>;
   close(): Promise<void>;
 }
 

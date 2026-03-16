@@ -5,7 +5,7 @@
 <h1 align="center">Tunnlo</h1>
 
 <p align="center">
-  A real-time data-to-agent bridge with intelligent filtering, routing, and multi-LLM support.
+  Pipe any live data stream into an LLM and act on it — in real time.
 </p>
 
 <p align="center">
@@ -19,8 +19,57 @@
 </p>
 
 ---
+### Prerequisites
 
-Pipe any data source — logs, network traffic, stdin, MCP servers — through configurable filters into an LLM, and act on its responses. Self-hosted, privacy-first, and fully open source.
+- **Node.js >= 22**
+- An LLM provider:
+  - [Ollama](https://ollama.com) for local models (recommended for getting started)
+  - OpenAI, Anthropic, or any OpenAI-compatible API
+
+## Try It Now
+
+One command. No config. No API keys.
+
+```bash
+npx @tunnlo/cli demo
+```
+
+This streams your machine's live system logs + stdin through a local LLM ([Ollama](https://ollama.com)), with AI analysis appearing token-by-token in your terminal:
+
+```
+▶ logs  kernel: IOSurface
+Routine kernel surface allocation — graphics subsystem managing shared
+memory buffers between apps and the GPU. Normal operation.
+
+▶ stdin  Error: ECONNREFUSED 127.0.0.1:5432
+Connection refused to PostgreSQL on localhost. The database server isn't
+running. Start it with `brew services start postgresql`.
+```
+
+Paste a stack trace, error message, JSON blob, or any text — get instant streaming analysis. A live dashboard runs at `http://localhost:4400` showing events, token usage, and latency in real time.
+
+```bash
+# Options
+tunnlo demo --model mistral:7b   # pick a specific model
+tunnlo demo --no-logs             # stdin only, no log tailing
+```
+
+> **Requirements:** [Ollama](https://ollama.com) running locally with any model pulled (`ollama pull llama3.1:8b`).
+
+---
+
+## What Is Tunnlo?
+
+A real-time data-to-agent bridge. Pipe any data source — logs, network traffic, stdin, Kafka, MCP servers — through intelligent filters into any LLM, and act on its responses. Self-hosted, privacy-first, fully open source.
+
+```
+Data Sources → Message Bus → Filter Engine → Agent Bridge → Action Dispatch
+```
+
+1. **Adapters** ingest data from log files, network traffic, stdin, Kafka, Google Docs, MCP servers, or custom sources
+2. **Filters** reduce noise — rate limiting, dedup, content matching, windowed aggregation, adaptive sampling, priority routing
+3. **Agent Bridge** streams filtered events to an LLM with your system prompt
+4. **Actions** execute based on LLM responses — webhooks, MCP tool calls, approval gates
 
 ## Quick Start
 
@@ -30,29 +79,11 @@ cd my-pipeline
 npm start
 ```
 
-Or run directly:
+Or run directly with a config file:
 
 ```bash
-echo "server CPU at 95%" | npx tunnlo start examples/stdin-demo.yaml
+tunnlo start pipeline.yaml
 ```
-
-### Prerequisites
-
-- **Node.js >= 22**
-- An LLM provider:
-  - [Ollama](https://ollama.com) for local models (recommended for getting started)
-  - OpenAI, Anthropic, or any OpenAI-compatible API
-
-## How It Works
-
-```
-Data Sources → Message Bus → Filter Engine → Agent Bridge → Action Dispatch
-```
-
-1. **Adapters** ingest data from log files, network traffic, stdin, MCP servers, or custom sources
-2. **Filters** reduce noise — rate limiting, dedup, content matching, windowed aggregation, adaptive sampling, priority routing
-3. **Agent Bridge** sends filtered events to an LLM with your system prompt
-4. **Actions** execute based on LLM responses — webhooks, MCP tool calls, approval gates
 
 ## Example Config
 
@@ -87,40 +118,27 @@ behavior:
   on_llm_unreachable: drop_and_alert
 ```
 
-```bash
-tunnlo start pipeline.yaml
-```
-
 ## Features
 
-- **Multi-LLM support** — Anthropic, OpenAI, Ollama, LangGraph, CrewAI
+- **Streaming responses** — LLM output appears token-by-token in terminal and dashboard
+- **Multi-LLM support** — Anthropic, OpenAI, Ollama, LangGraph, CrewAI, OpenClaw
+- **Multi-agent routing** — route sources to specialized agents, fan-out for correlation
 - **Intelligent filtering** — rate limiting, dedup, content matching, windowed aggregation, adaptive sampling, priority routing
-- **Built-in adapters** — stdin, log-tailer, tshark, MCP bridge
+- **Built-in adapters** — stdin, log-tailer, tshark, Kafka, Google Docs, MCP bridge
 - **Custom adapter SDK** — push and polling base classes with test harness
-- **Web dashboard** — live metrics, token usage, adapter status (port 4400)
+- **Web dashboard** — live metrics, token usage, adapter status, agent responses (port 4400)
+- **LLM benchmarking** — compare latency, throughput, and cost across providers
 - **Hot reload** — send SIGHUP to reload config without restarting
 - **Privacy-first** — self-hosted, your data never leaves your infrastructure
-
-## Packages
-
-| Package | Description |
-|---------|-------------|
-| `@tunnlo/core` | Types, pipeline, bus, event model, logger |
-| `@tunnlo/adapters` | Built-in adapters: stdin, log-tailer, tshark, MCP bridge |
-| `@tunnlo/filters` | Filters: rate-limiter, dedup, content-filter, windowed, adaptive, priority |
-| `@tunnlo/bridge-llm` | LLM bridges: Anthropic, OpenAI, Ollama, LangGraph, CrewAI |
-| `@tunnlo/actions` | Action handlers: webhook, MCP tool, approval gate |
-| `@tunnlo/adapter-sdk` | SDK for building custom adapters |
-| `@tunnlo/dashboard` | Web dashboard with live metrics |
-| `@tunnlo/cli` | CLI entry point |
-| `create-tunnlo` | Project scaffolding (`npm create tunnlo`) |
 
 ## CLI
 
 ```bash
-tunnlo start <config>       # Start a pipeline
-tunnlo validate <config>    # Validate config without running
-tunnlo status               # Show dashboard status
+tunnlo demo                     # Zero-config live demo with Ollama
+tunnlo start <config>           # Start a pipeline from YAML config
+tunnlo validate <config>        # Validate config without running
+tunnlo status                   # Show dashboard metrics
+tunnlo bench <config>           # Benchmark LLM bridges
 ```
 
 | Flag | Description |
@@ -132,12 +150,26 @@ tunnlo status               # Show dashboard status
 | `-q, --quiet` | Suppress all output except errors |
 | `--log-file <path>` | Write logs to a file |
 
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| `@tunnlo/core` | Types, pipeline, bus, event model, logger |
+| `@tunnlo/adapters` | Built-in adapters: stdin, log-tailer, tshark, Kafka, Google Docs, MCP bridge |
+| `@tunnlo/filters` | Filters: rate-limiter, dedup, content-filter, windowed, adaptive, priority |
+| `@tunnlo/bridge-llm` | LLM bridges: Anthropic, OpenAI, Ollama, LangGraph, CrewAI, OpenClaw |
+| `@tunnlo/actions` | Action handlers: webhook, MCP tool, approval gate |
+| `@tunnlo/adapter-sdk` | SDK for building custom adapters |
+| `@tunnlo/dashboard` | Web dashboard with live metrics |
+| `@tunnlo/cli` | CLI entry point |
+| `create-tunnlo` | Project scaffolding (`npm create tunnlo`) |
+
 ## Development
 
 ```bash
 npm install          # Install dependencies
 npm run build        # Build all packages
-npx vitest run       # Run tests
+npx vitest run       # Run tests (166 tests)
 npx vitest           # Watch mode
 ```
 

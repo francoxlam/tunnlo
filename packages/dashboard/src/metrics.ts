@@ -177,6 +177,12 @@ export class MetricsCollector {
     const adapter = this.adapterMetrics.get(id);
     if (adapter) {
       adapter.status = status;
+    } else {
+      this.adapterMetrics.set(id, {
+        id,
+        status,
+        events_produced: 0,
+      });
     }
   }
 

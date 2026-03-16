@@ -1,6 +1,6 @@
 {
   "name": "@tunnlo/actions",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Action dispatch for Tunnlo pipelines",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.1"
+    "@tunnlo/core": "0.1.4"
   },
   "files": ["dist"]
 }

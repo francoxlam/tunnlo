@@ -291,7 +291,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     .empty-msg { padding: 32px 20px; text-align: center; color: #30363d; font-size: 13px; }
 
     /* Mobile */
-    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-scroll { overflow-x: auto; overflow-y: auto; max-height: 400px; -webkit-overflow-scrolling: touch; }
 
     @media (max-width: 600px) {
       nav { padding: 0 16px; gap: 8px; }

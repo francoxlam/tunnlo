@@ -1,6 +1,6 @@
 {
   "name": "@tunnlo/adapter-sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SDK for building custom Tunnlo adapters",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.1"
+    "@tunnlo/core": "0.1.4"
   },
   "files": ["dist"]
 }

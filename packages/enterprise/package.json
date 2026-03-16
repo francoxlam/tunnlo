@@ -1,6 +1,6 @@
 {
   "name": "@tunnlo/enterprise",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Enterprise features for Tunnlo: multi-tenant, RBAC, audit logging",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.0"
+    "@tunnlo/core": "0.1.4"
   },
   "files": ["dist"]
 }

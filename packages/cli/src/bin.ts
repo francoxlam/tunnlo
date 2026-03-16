@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { loadConfig } from './config.js';
 import { buildAndRun } from './runner.js';
 import { runBench } from './bench.js';
+import { runDemo } from './demo.js';
 import type { LogLevel, LogFormat } from '@tunnlo/core';
 import { getLogger, Logger, setGlobalLogger } from '@tunnlo/core';
 
@@ -209,6 +210,23 @@ program
     } catch {
       console.error(`[tunnlo] Could not connect to dashboard on port ${port}.`);
       console.error('  Make sure a pipeline is running with "tunnlo start <config>".');
+      process.exit(1);
+    }
+  });
+
+program
+  .command('demo')
+  .description('Zero-config live demo: streams system logs + stdin through a local LLM')
+  .option('--model <model>', 'Ollama model to use (default: llama3.1:8b)')
+  .option('--no-logs', 'Disable log streaming, stdin only')
+  .action(async (options: { model?: string; logs?: boolean }) => {
+    try {
+      await runDemo({
+        model: options.model,
+        noLogs: options.logs === false,
+      });
+    } catch (err) {
+      console.error('[tunnlo demo] Error:', (err as Error).message);
       process.exit(1);
     }
   });

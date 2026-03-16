@@ -1,6 +1,6 @@
 {
   "name": "@tunnlo/dashboard",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Web dashboard for Tunnlo pipeline monitoring",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@tunnlo/core": "0.1.3"
+    "@tunnlo/core": "0.1.4"
   },
   "files": ["dist", "src/public"]
 }

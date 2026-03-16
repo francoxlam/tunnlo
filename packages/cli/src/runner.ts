@@ -1,4 +1,4 @@
-import type { PipelineConfig, LogLevel, LogFormat, AgentEntry } from '@tunnlo/core';
+import type { PipelineConfig, LogLevel, LogFormat, AgentEntry, StreamChunkHandler } from '@tunnlo/core';
 import { Pipeline, Logger, setGlobalLogger, getLogger } from '@tunnlo/core';
 import { MetricsCollector, DashboardServer } from '@tunnlo/dashboard';
 import { createAdapter, createFilter, createBridge, createActionHandler, createBus } from './factory.js';
@@ -14,6 +14,29 @@ export interface RunOptions {
   logLevel?: LogLevel;
   logFile?: string;
   logFormat?: LogFormat;
+}
+
+function createStreamHandler(agentCount: number): StreamChunkHandler {
+  const showAgentId = agentCount > 1;
+  // Track which agents are currently streaming to manage newlines
+  const activeAgents = new Set<string>();
+
+  return (agentId, event, chunk) => {
+    if (chunk.type === 'text' && chunk.text) {
+      if (!activeAgents.has(agentId)) {
+        // First chunk from this agent for this response
+        activeAgents.add(agentId);
+        const prefix = showAgentId ? `\x1b[36m[${agentId}]\x1b[0m ` : '';
+        process.stdout.write(`${prefix}`);
+      }
+      process.stdout.write(chunk.text);
+    } else if (chunk.type === 'done') {
+      if (activeAgents.has(agentId)) {
+        process.stdout.write('\n');
+        activeAgents.delete(agentId);
+      }
+    }
+  };
 }
 
 export async function buildAndRun(config: PipelineConfig, options: RunOptions = {}): Promise<RunResult> {
@@ -49,6 +72,8 @@ export async function buildAndRun(config: PipelineConfig, options: RunOptions = 
     // Collect action handlers from all agents
     const actionHandlers = agentConfigs.flatMap((a) => (a.actions ?? []).map(createActionHandler));
 
+    const onStreamChunk = createStreamHandler(agents.length);
+
     const pipeline = new Pipeline({
       bus,
       adapters,
@@ -57,6 +82,7 @@ export async function buildAndRun(config: PipelineConfig, options: RunOptions = 
       actionHandlers,
       behavior: config.behavior,
       metrics,
+      onStreamChunk,
     });
 
     // Start dashboard if configured
